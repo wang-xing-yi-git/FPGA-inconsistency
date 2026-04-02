@@ -97,12 +97,25 @@ req_elements = {
     'concept': 'sequential_logic'
 }
 req_vector = numpy.array([0.1, -0.2, 0.5, ...])  # 768维
+```
 
+**第2阶段输出**：
+```python
 code_elements = {
-    'modules': ['counter'],
-    'ports': {'input': ['clk', 'rst'], 'output': ['count']},
-    'signals': [{'name': 'temp', 'type': 'wire'}, ...],
-    'behaviors': [{'trigger': 'posedge clk'}]
+    'modules': [{'name': 'counter', 'ports': ['clk', 'rst', 'count']}],
+    'ports': {
+        'input': [{'name': 'clk', 'width': 1}, {'name': 'rst', 'width': 1}],
+        'output': [{'name': 'count', 'width': 8}]
+    },
+    'signals': [
+        {'name': 'temp', 'type': 'wire', 'width': 8},
+        {'name': 'count_reg', 'type': 'reg', 'width': 8}
+    ],
+    'always_blocks': [{'trigger': 'posedge clk', 'lines': 15}],
+    'fpga_features': [
+        {'type': 'sequential_logic', 'detected': True},
+        {'type': 'reset_mechanism', 'detected': True}
+    ]
 }
 code_vector = numpy.array([0.15, -0.18, 0.52, ...])  # 768维
 ```
