@@ -1,0 +1,47 @@
+# FPGA设计文实不一致检测配置文件
+
+# 自然语言处理配置
+nlp:
+  stopwords_lang: "english"
+  min_word_length: 2
+  bert_model: "bert-base-uncased"
+  bert_max_length: 512
+  embedding_dim: 768
+
+# FPGA代码处理配置
+code:
+  ast_encoding_dim: 256
+  cnn_filters: [32, 64, 128]
+  cnn_kernel_sizes: [3, 4, 5]
+  max_ast_depth: 10
+
+# 语义对齐配置
+alignment:
+  similarity_threshold: 0.7
+  high_similarity_threshold: 0.8
+  low_similarity_threshold: 0.5
+  use_rule_verification: true
+
+# 不一致检测配置
+inconsistency:
+  # GAT配置
+  gat:
+    num_heads: 4
+    hidden_dim: 128
+    num_layers: 2
+    dropout: 0.1
+  
+  # Bi-GRU配置
+  bigru:
+    hidden_dim: 64
+    num_layers: 1
+    dropout: 0.1
+  
+  # 置信度阈值
+  confidence_threshold: 0.5
+
+# 输出配置
+output:
+  report_format: "json"
+  report_path: "./reports"
+  save_intermediate: true

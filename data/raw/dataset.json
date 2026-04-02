@@ -1,0 +1,27 @@
+[
+  {
+    "id": 1,
+    "req_desc_origin": "实现一个具有上升沿触发的异步复位计数器，计数宽度为8bit，计数范围0-255，当计数达到最大值时自动清零。",
+    "code_origin": "module counter (input clk, input rst_n, output [7:0] count); always @(posedge clk or negedge rst_n) begin if (!rst_n) count <= 8'b0; else count <= count + 1; end endmodule"
+  },
+  {
+    "id": 2,
+    "req_desc_origin": "设计一个多路选择器，具有4个输入信号和2个控制信号，根据控制信号输出对应的输入。",
+    "code_origin": "module mux2to1 (input a, input b, input sel, output out); assign out = sel ? a : b; endmodule"
+  },
+  {
+    "id": 3,
+    "req_desc_origin": "实现一个频率为100MHz，分频比为10的时钟分频器，输出频率为10MHz。",
+    "code_origin": "module clock_divider (input clk_in, input rst_n, output clk_out); reg [3:0] count; always @(posedge clk_in or negedge rst_n) begin if (!rst_n) begin count <= 0; end else begin if (count == 4'd4) begin clk_out <= ~clk_out; count <= 0; end else count <= count + 1; end end endmodule"
+  },
+  {
+    "id": 4,
+    "req_desc_origin": "设计一个移位寄存器，支持左移和右移，具有并行加载功能。",
+    "code_origin": "module shift_reg (input clk, input rst_n, input [3:0] data_in, input shift_en, output [3:0] data_out); reg [3:0] reg_data; always @(posedge clk or negedge rst_n) begin if (!rst_n) reg_data <= 4'b0; else if (shift_en) reg_data <= {reg_data[2:0], data_in[0]}; else reg_data <= data_in; end assign data_out = reg_data; endmodule"
+  },
+  {
+    "id": 5,
+    "req_desc_origin": "实现一个优先级编码器，将8个输入中优先级最高的信号转换为3位二进制编码。",
+    "code_origin": "module priority_encoder (input [7:0] req, output [2:0] priority); always @(*) begin if (req[7]) priority = 3'd7; else if (req[6]) priority = 3'd6; else priority = 3'b0; end endmodule"
+  }
+]
