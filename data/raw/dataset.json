@@ -23,5 +23,10 @@
     "id": 5,
     "req_desc_origin": "实现一个优先级编码器，将8个输入中优先级最高的信号转换为3位二进制编码。",
     "code_origin": "module priority_encoder (input [7:0] req, output [2:0] priority); always @(*) begin if (req[7]) priority = 3'd7; else if (req[6]) priority = 3'd6; else priority = 3'b0; end endmodule"
+  },
+  {
+    "id": 6,
+    "req_desc_origin": "实现4位移位寄存器，具备异步复位和使能控制功能",
+    "code_origin": "module design_18(\n    input clk,\n    input rst_n,\n    output [3:0] data_out\n);\n    // 设计实现: 异步复位和使能控制\n    reg [3:0] counter;\n    \n    always @(posedge clk or negedge rst_n) begin\n        if (!rst_n)\n            counter <= 0;\n        else\n            counter <= counter + 1;\n    end\n    \n    assign data_out = counter;\nendmodule"
   }
 ]
