@@ -90,8 +90,8 @@ class TestSemanticAligner(unittest.TestCase):
         
         self.assertEqual(result.req_id, 1)
         self.assertIsNotNone(result.status)
-        self.assertGreaterEqual(result.similarity_score, 0)
-        self.assertLessEqual(result.similarity_score, 1)
+        self.assertGreaterEqual(result.mapping_confidence, 0)
+        self.assertLessEqual(result.mapping_confidence, 1)
 
 
 if __name__ == '__main__':

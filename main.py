@@ -65,6 +65,7 @@ class FPGAInconsistencyDetectionSystem:
         # 需求语义提取
         req_elements = self.nlp_extractor.extract_semantic_elements(req_text)
         req_vector = self.nlp_extractor.get_semantic_vector(req_text)
+     
 
         # 代码语义提取
         code_elements = self.code_extractor.extract_semantic_elements(code_text)
@@ -114,9 +115,10 @@ class FPGAInconsistencyDetectionSystem:
             },
             "alignment": {
                 "status": alignment_result.status.value,
-                "similarity_score": alignment_result.similarity_score,
-                "confidence": alignment_result.confidence,
-                "matched_rule": alignment_result.matched_rule,
+                "keyword_match": alignment_result.mapping_confidence,  # 【改进】细粒度关键词匹配
+                "confidence": alignment_result.confidence,  # 综合置信度
+                "reason": alignment_result.reason,  # 对齐判定原因
+                "debug_info": alignment_result.debug_info,  # 【新增】调试详情
             },
             "inconsistency_detection": inconsistency_result,
         }
@@ -124,7 +126,9 @@ class FPGAInconsistencyDetectionSystem:
         # 打印摘要 ✨ 改进的输出逻辑
         print(f"\n结果摘要:")
         print(f"  对齐状态: {alignment_result.status.value}")
-        print(f"  相似度: {alignment_result.similarity_score:.2f}")
+        print(f"  细粒度关键词匹配: {alignment_result.mapping_confidence:.2f}")
+        print(f"  综合置信度: {alignment_result.confidence:.2f}")
+        print(f"  判定原因: {alignment_result.reason}")
 
         # 分别显示DL推理和规则检测结果
         explicit_count = len(inconsistency_result["explicit_inconsistencies"])

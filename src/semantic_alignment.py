@@ -10,6 +10,9 @@ import numpy as np
 from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass, field
 from enum import Enum
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent))
 from src.semantic_extraction import extract_bidirectional_semantics
 
 
@@ -28,15 +31,14 @@ class AlignmentResult:
 
     req_id: int
     code_segment: str
-    similarity_score: float
     status: AlignmentStatus
     confidence: float
-    matched_rule: Optional[str] = None
     reason: str = ""
-    mapping_confidence: float = 0.0  # 【修改】语义映射置信度
+    mapping_confidence: float = 0.0  # 【改进】细粒度关键词匹配度（标识符拆分+映射表法）
     alignment_pairs: List[Dict] = field(
         default_factory=list
     )  # ✨ 新增：对齐对列表（用于深度学习）
+    debug_info: Dict = field(default_factory=dict)  # 【新增】调试信息（映射详情、代码词汇等）
 
 
 class NLPSyntaxLibrary:
@@ -51,13 +53,8 @@ class NLPSyntaxLibrary:
         self.chinese_patterns = {
             "timing_constraints": {
                 "keywords": [
-                    "时钟周期",
-                    "延迟",
-                    "频率",
-                    "时序",
-                    "脉冲宽度",
-                    "建立时间",
-                    "保持时间",
+                    "时钟周期","延迟","频率","时序",
+                    "脉冲宽度","建立时间","保持时间",
                 ],
                 "semantic_type": "timing",
             },
@@ -67,14 +64,8 @@ class NLPSyntaxLibrary:
             },
             "memory_operations": {
                 "keywords": [
-                    "存储",
-                    "读取",
-                    "写入",
-                    "内存",
-                    "RAM",
-                    "地址",
-                    "数据深度",
-                    "位宽",
+                    "存储","读取","写入","内存",
+                    "RAM","地址","数据深度","位宽",
                 ],
                 "semantic_type": "memory",
             },
@@ -96,61 +87,36 @@ class NLPSyntaxLibrary:
         self.english_patterns = {
             "timing_constraints": {
                 "keywords": [
-                    "clock",
-                    "cycle",
-                    "delay",
-                    "frequency",
-                    "timing",
-                    "pulse",
-                    "setup",
-                    "hold",
+                    "clock","cycle","delay","frequency",
+                    "timing","pulse","setup","hold",
                 ],
                 "semantic_type": "timing",
             },
             "io_specifications": {
                 "keywords": [
-                    "input",
-                    "output",
-                    "port",
-                    "signal",
-                    "data",
-                    "address",
-                    "control",
+                    "input","output","port","signal",
+                    "data","address","control",
                 ],
                 "semantic_type": "io",
             },
             "memory_operations": {
                 "keywords": [
-                    "memory",
-                    "read",
-                    "write",
-                    "ram",
-                    "address",
-                    "depth",
-                    "width",
+                    "memory","read","write","ram",
+                    "address","depth","width",
                 ],
                 "semantic_type": "memory",
             },
             "control_logic": {
                 "keywords": [
-                    "control",
-                    "condition",
-                    "select",
-                    "enable",
-                    "reset",
-                    "sync",
-                    "async",
+                    "control","condition","select",
+                    "enable","reset","sync","async",
                 ],
                 "semantic_type": "control",
             },
             "datapath": {
                 "keywords": [
-                    "datapath",
-                    "process",
-                    "compute",
-                    "count",
-                    "counter",
-                    "accumulate",
+                    "datapath","process","compute",
+                    "count","counter","accumulate",
                 ],
                 "semantic_type": "datapath",
             },
@@ -180,7 +146,10 @@ class NLPSyntaxLibrary:
                     matched_keywords.append(keyword)
 
             if matched_keywords:
-                patterns_found[pattern_name] = matched_keywords
+                patterns_found[pattern_name] = {
+                    "keywords": matched_keywords,
+                    "semantic_type": pattern_info["semantic_type"]
+                }
 
         return patterns_found
 
@@ -263,7 +232,10 @@ class CodeSyntaxLibrary:
                     matched_patterns.extend(matches[:3])  # 最多保留3个匹配
 
             if matched_patterns:
-                constructs_found[construct_name] = list(set(matched_patterns))
+                constructs_found[construct_name] = {
+                    "patterns": list(set(matched_patterns)),
+                    "semantic_type": construct_info["semantic_type"]
+                }
 
         return constructs_found
 
@@ -276,403 +248,217 @@ class SemanticMappingRulesLibrary:
 
     def __init__(self):
         """【修改】初始化增强的语义映射规则库"""
-        self.mapping_rules = self._initialize_mapping_rules()
-        self.rule_count = len(self.mapping_rules)
+        # 【新增】中文关键词 → 英文关键词的映射表（用于细粒度关键词对应）
+        self.chinese_to_english_mapping = self._build_chinese_english_mapping()
 
-    def _initialize_mapping_rules(self) -> List[Dict]:
+    def _build_chinese_english_mapping(self) -> Dict[str, List[str]]:
         """
-        【修改】初始化FPGA领域的双向语义映射规则
+        【新增】构建中文关键词 → 英文关键词的映射表
+        
+        这个映射表用于实现真正的细粒度关键词对应关系（已大幅扩展）
 
         Returns:
-            映射规则列表
+            中文关键词到英文关键词列表的映射字典
         """
-        rules = [
-            # 【修改】时钟与时序规则
-            {
-                "id": "rule_timing_clock",
-                "nlp_keywords": [
-                    "时钟",
-                    "时钟周期",
-                    "频率",
-                    "mhz",
-                    "clock",
-                    "frequency",
-                ],
-                "code_patterns": [
-                    "always.*clk",
-                    "posedge",
-                    "negedge",
-                    "clk",
-                    "@(.*clk",
-                ],
-                "semantic_type": "timing",
-                "mapping_score": 0.95,
-                "constraint_type": "functional",
-            },
-            # 【修改】复位与初始化规则
-            {
-                "id": "rule_control_reset",
-                "nlp_keywords": [
-                    "复位",
-                    "重置",
-                    "初始化",
-                    "清零",
-                    "reset",
-                    "rst",
-                    "clear",
-                ],
-                "code_patterns": ["rst", "reset", "negedge.*rst", "if.*rst"],
-                "semantic_type": "control",
-                "mapping_score": 0.92,
-                "constraint_type": "functional",
-            },
-            # 【修改】数据位宽规则
-            {
-                "id": "rule_datapath_width",
-                "nlp_keywords": ["位宽", "比特", "数据宽度", "bit", "width", "bits"],
-                "code_patterns": [r"\[\d+:\d+\]", "wire.*\[", "reg.*\[", "[7:0]"],
-                "semantic_type": "io",
-                "mapping_score": 0.90,
-                "constraint_type": "structural",
-            },
-            # 【修改】存储/RAM规则
-            {
-                "id": "rule_memory_ram",
-                "nlp_keywords": [
-                    "存储",
-                    "内存",
-                    "双端口",
-                    "RAM",
-                    "深度",
-                    "memory",
-                    "port",
-                ],
-                "code_patterns": ["reg.*\\[.*\\]", "ram", "memory", "dpram", "port"],
-                "semantic_type": "memory",
-                "mapping_score": 0.88,
-                "constraint_type": "structural",
-            },
-            # 【修改】读写操作规则
-            {
-                "id": "rule_memory_readwrite",
-                "nlp_keywords": [
-                    "读取",
-                    "写入",
-                    "读操作",
-                    "写操作",
-                    "read",
-                    "write",
-                    "wr_rd",
-                ],
-                "code_patterns": ["<=", "=", "wr_rd_n", "we", "write_enable"],
-                "semantic_type": "memory",
-                "mapping_score": 0.85,
-                "constraint_type": "functional",
-            },
-            # 【修改】端口连接规则
-            {
-                "id": "rule_io_ports",
-                "nlp_keywords": [
-                    "端口",
-                    "输入",
-                    "输出",
-                    "信号",
-                    "port",
-                    "input",
-                    "output",
-                    "io",
-                ],
-                "code_patterns": ["input", "output", "inout", "port"],
-                "semantic_type": "io",
-                "mapping_score": 0.87,
-                "constraint_type": "structural",
-            },
-            # 【修改】条件控制规则
-            {
-                "id": "rule_logic_condition",
-                "nlp_keywords": [
-                    "条件",
-                    "选择",
-                    "控制",
-                    "如果",
-                    "if",
-                    "condition",
-                    "select",
-                ],
-                "code_patterns": ["if", "else", "case", "?:", "ternary"],
-                "semantic_type": "control",
-                "mapping_score": 0.86,
-                "constraint_type": "functional",
-            },
-            # 【修改】同步设计规则
-            {
-                "id": "rule_sync_design",
-                "nlp_keywords": ["同步", "时钟", "同步设计", "synchronous", "sync"],
-                "code_patterns": ["always.*@.*posedge", "clocked", "synchronized"],
-                "semantic_type": "synchronization",
-                "mapping_score": 0.84,
-                "constraint_type": "architectural",
-            },
-            # 【修改】异步设计规则
-            {
-                "id": "rule_async_design",
-                "nlp_keywords": ["异步", "独立", "异步设计", "asynchronous", "async"],
-                "code_patterns": ["always.*@.*rst", "async", "independent"],
-                "semantic_type": "control",
-                "mapping_score": 0.80,
-                "constraint_type": "architectural",
-            },
-            # 【修改】模块参数化规则
-            {
-                "id": "rule_param_module",
-                "nlp_keywords": ["参数", "可配置", "模块", "parameter", "configurable"],
-                "code_patterns": ["parameter", "#(", "DEPTH", "WIDTH"],
-                "semantic_type": "structural",
-                "mapping_score": 0.82,
-                "constraint_type": "structural",
-            },
-            # 【修改】延迟与时序规则
-            {
-                "id": "rule_timing_delay",
-                "nlp_keywords": ["延迟", "时序", "脉冲", "delay", "timing", "latency"],
-                "code_patterns": ["#", "timescale", "delay", "@"],
-                "semantic_type": "timing",
-                "mapping_score": 0.78,
-                "constraint_type": "temporal",
-            },
-            # 【修改】模块实例化规则
-            {
-                "id": "rule_struct_instance",
-                "nlp_keywords": ["模块", "实例", "子模块", "module", "instance"],
-                "code_patterns": ["module", "\\w+\\s+\\w+\\s*\\(", "instantiat"],
-                "semantic_type": "component",
-                "mapping_score": 0.85,
-                "constraint_type": "structural",
-            },
-        ]
-        return rules
+        mapping = {
+            # 时钟与时序相关
+            "时钟": ["clock", "clk", "cycle", "frequency"],
+            "时钟周期": ["cycle", "period", "clk"],
+            "频率": ["frequency", "hz", "mhz"],
+            "延迟": ["delay", "latency", "delaytime"],
+            "时序": ["timing", "time"],
+            "脉冲": ["pulse", "clk"],
+            "脉冲宽度": ["pulse", "width"],
+            "建立时间": ["setup", "time"],
+            "保持时间": ["hold", "time"],
+            "触发": ["trigger", "fire", "edge", "posedge", "negedge"],  # 【新增】
+            "上升": ["rise", "posedge", "rising", "edge"],  # 【新增】
+            "下降": ["fall", "negedge", "falling", "edge"],  # 【新增】
+            "沿": ["edge", "posedge", "negedge"],  # 【新增】
+            
+            # 输入输出相关
+            "输入": ["input", "in"],
+            "输出": ["output", "out"],
+            "端口": ["port", "pin"],
+            "信号": ["signal", "sig"],
+            "数据": ["data", "dat"],
+            "地址": ["address", "addr"],
+            "控制": ["control", "ctrl"],
+            
+            # 存储与内存相关
+            "存储": ["memory", "ram", "storage"],
+            "读取": ["read", "rd"],
+            "写入": ["write", "wr"],
+            "内存": ["memory", "ram", "mem"],
+            "RAM": ["ram", "memory"],
+            "深度": ["depth", "deep"],
+            "位宽": ["width", "bit", "bits"],
+            "宽度": ["width", "bit", "bits"],  # 【新增】
+            "比特": ["bit", "bits"],
+            
+            # 控制逻辑相关
+            "复位": ["reset", "rst"],
+            "重置": ["reset", "clear"],
+            "初始化": ["initial", "init"],
+            "清零": ["clear", "clr"],
+            "清除": ["clear", "clr"],  # 【新增】
+            "条件": ["condition", "if"],
+            "选择": ["select", "mux"],
+            "使能": ["enable", "en"],
+            "同步": ["sync", "synchronous"],
+            "异步": ["async", "asynchronous"],
+            
+            # 数据通路与移位相关
+            "计数": ["count", "counter"],
+            "计数器": ["counter", "cnt"],
+            "累加": ["accumulate", "add"],
+            "运算": ["compute", "operation"],
+            "处理": ["process", "handle"],
+            "移位": ["shift"],  # 【新增】
+            "左移": ["shift", "left", "sll"],  # 【新增】
+            "右移": ["shift", "right", "srl"],  # 【新增】
+            "位移": ["shift", "slr"],  # 【新增】
+            "寄存器": ["register", "reg"],  # 【新增】
+            
+            # 模块与结构相关
+            "模块": ["module", "block"],
+            "实例": ["instance", "inst"],
+            "子模块": ["submodule", "module"],
+            "参数": ["parameter", "param"],
+            "可配置": ["configurable", "parameter"],
+            
+            # 分频相关
+            "分频": ["divide", "divider"],  # 【新增】
+            "分频器": ["divider", "divide"],  # 【新增】
+            "分倍": ["frequency"],  # 【新增】
+            
+            # 时钟域相关
+            "时钟域": ["clock", "domain"],
+            "握手": ["handshake", "ack"],
+            "信号同步": ["synchronize", "sync"],
+            "双端口": ["dual", "port", "dpram"],
+            "总线": ["bus", "interface"],
+            "片选": ["chip_select", "cs"],
+            "读写控制": ["wr_rd", "control"],
+            
+            # 并行相关
+            "并行": ["parallel", "parallel"],  # 【新增】
+            "串行": ["serial", "serial"],  # 【新增】
+            "加载": ["load", "latch"],  # 【新增】
+            "锁存": ["latch", "hold"],  # 【新增】
+            
+            # 编码/优先级相关
+            "编码": ["encode", "coder"],  # 【新增】
+            "编码器": ["encoder", "coder"],  # 【新增】
+            "优先级": ["priority", "prior"],  # 【新增】
+            "二进制": ["binary", "bin"],  # 【新增】
+            "十进制": ["decimal", "dec"],  # 【新增】
+            
+            # 多路选择相关
+            "多路": ["mux", "multiplexer", "select"],  # 【新增】
+            "选择器": ["selector", "mux"],  # 【新增】
+            "多路选择": ["multiplexer", "mux"],  # 【新增】
+        }
+        return mapping
 
     def find_semantic_mappings(
-        self, nlp_keywords: List[str], code_constructs: List[str]
-    ) -> List[Dict]:
+        self, nlp_keywords: List[str], code_keywords: List[str], debug: bool = False
+    ) -> Tuple[float, Dict]:
         """
-        【修改】查找语义映射规则
-
+        【改进】计算细粒度关键词对应置信度 - 智能拆分+映射表查询
+        
+        改进策略：
+        1. 只计算在映射表中的NLP关键词
+        2. 对Code标识符进行"拆分"（underscore分离）
+        3. 计算映射成功率
+        
         Args:
-            nlp_keywords: NLP提取的关键字
-            code_constructs: 代码提取的构造
+            nlp_keywords: 需求提取的关键字（通常包含中文）
+            code_keywords: 代码提取的关键字（标识符）
+            debug: 是否返回调试信息
 
         Returns:
-            匹配的语义映射规则列表
+            (关键词匹配置信度, 调试信息字典) 元组
         """
-        matched_mappings = []
-
-        for rule in self.mapping_rules:
-            nlp_match = any(kw in nlp_keywords for kw in rule["nlp_keywords"])
-            code_match = any(
-                pattern in code_constructs for pattern in rule["code_patterns"]
-            )
-
-            if nlp_match and code_match:
-                matched_mappings.append(rule)
-
-        return matched_mappings
-
-    def calculate_mapping_confidence(
-        self, rule: Dict, nlp_keywords: List[str], code_constructs: List[str]
-    ) -> float:
-        """
-        【修改】计算语义映射置信度
-
-        Args:
-            rule: 映射规则
-            nlp_keywords: NLP关键字
-            code_constructs: 代码构造
-
-        Returns:
-            映射置信度 [0, 1]
-        """
-        nlp_match_count = sum(1 for kw in rule["nlp_keywords"] if kw in nlp_keywords)
-        code_match_count = sum(
-            1 for pattern in rule["code_patterns"] if pattern in code_constructs
-        )
-
-        if nlp_match_count == 0 or code_match_count == 0:
-            return 0.0
-
-        # 【修改】组合匹配度和规则置信度
-        match_ratio = min(
-            (nlp_match_count + code_match_count)
-            / (len(rule["nlp_keywords"]) + len(rule["code_patterns"])),
-            1.0,
-        )
-
-        confidence = rule.get("mapping_score", 0.8) * match_ratio
-        return min(confidence, 1.0)
-
-
-class MappingRulesLibrary:
-    """【修改】保留原有接口的规则库（兼容性）"""
-
-    def __init__(self):
-        """初始化规则库"""
-        self.rules = self._initialize_rules()
-        self.rule_count = len(self.rules)
-
-    def _initialize_rules(self) -> List[Dict]:
-        """
-        初始化FPGA领域的映射规则
-
-        Returns:
-            规则列表
-        """
-        rules = [
-            # 时钟相关规则
-            {
-                "id": "rule_clock_1",
-                "pattern_nlp": ["clock", "clk", "frequency", "mhz"],
-                "pattern_code": ["always.*clk", "posedge", "negedge"],
-                "type": "timing",
-                "confidence": 0.95,
-            },
-            # 复位相关规则
-            {
-                "id": "rule_reset_1",
-                "pattern_nlp": ["reset", "rst", "initialization", "clear"],
-                "pattern_code": ["rst", "reset_n", "negedge.*rst"],
-                "type": "control",
-                "confidence": 0.9,
-            },
-            # 计数器规则
-            {
-                "id": "rule_counter_1",
-                "pattern_nlp": ["counter", "count", "increment", "decrement"],
-                "pattern_code": ["count.*=.*count", "counter.*<="],
-                "type": "logic",
-                "confidence": 0.85,
-            },
-            # 宽度/位宽规则
-            {
-                "id": "rule_width_1",
-                "pattern_nlp": ["width", "bit", "bits", "range"],
-                "pattern_code": [r"\[\d+:\d+\]", "wire.*\[", "reg.*\["],
-                "type": "dimension",
-                "confidence": 0.8,
-            },
-            # 存储元件规则
-            {
-                "id": "rule_register_1",
-                "pattern_nlp": ["register", "storage", "memory", "buffer"],
-                "pattern_code": ["reg", "always.*<=", "ff"],
-                "type": "storage",
-                "confidence": 0.85,
-            },
-            # 信号规则
-            {
-                "id": "rule_signal_1",
-                "pattern_nlp": ["signal", "wire", "input", "output"],
-                "pattern_code": ["wire", "input", "output", "inout"],
-                "type": "io",
-                "confidence": 0.9,
-            },
-            # 异步设计规则
-            {
-                "id": "rule_async_1",
-                "pattern_nlp": ["asynchronous", "async", "independent"],
-                "pattern_code": ["always.*@.*rst", "async"],
-                "type": "control",
-                "confidence": 0.8,
-            },
-            # 延迟规则
-            {
-                "id": "rule_delay_1",
-                "pattern_nlp": ["delay", "latency", "timing"],
-                "pattern_code": ["#", "timescale", "delay"],
-                "type": "timing",
-                "confidence": 0.75,
-            },
-            # 模块实例化规则
-            {
-                "id": "rule_module_1",
-                "pattern_nlp": ["module", "component", "submodule"],
-                "pattern_code": ["module", "instantiate"],
-                "type": "component",
-                "confidence": 0.9,
-            },
-            # 条件控制规则
-            {
-                "id": "rule_condition_1",
-                "pattern_nlp": ["if", "condition", "conditional"],
-                "pattern_code": ["if", "else", "case", "?:"],
-                "type": "control",
-                "confidence": 0.85,
-            },
+        debug_info = {}  # 【新增】调试信息收集
+        
+        if not nlp_keywords or not code_keywords:
+            return 0.0, debug_info
+        
+        # 【改进】Step 1: 从NLP关键词中筛选出"有领域知识"的词（在映射表中的词）
+        mapped_nlp_keywords = [
+            kw for kw in nlp_keywords 
+            if kw in self.chinese_to_english_mapping
         ]
-        return rules
+        
+        debug_info["mapped_nlp_keywords"] = mapped_nlp_keywords  # 【新增】
+        
+        if not mapped_nlp_keywords:
+            if debug:
+                print(f"  [DEBUG] 没有映射的NLP关键词（原始: {nlp_keywords}）")
+            return 0.0, debug_info
+        
+        if debug:
+            print(f"  [DEBUG] 映射的NLP关键词: {mapped_nlp_keywords}")
+        
+        # 【改进】Step 2: 把Code标识符拆分成词汇成分
+        # 例如: clk_in → {clk, in}, counter_en → {counter, en}
+        code_word_parts = set()
+        for identifier in code_keywords:
+            # 按下划线分割
+            parts = identifier.lower().split('_')
+            code_word_parts.update(parts)
+        
+        debug_info["code_word_parts"] = list(code_word_parts)  # 【新增】
+        
+        if debug:
+            print(f"  [DEBUG] Code标识符分割结果: {code_word_parts}")
+        
+        # 【改进】Step 3: 对每个NLP关键词，检查其映射的英文词是否在Code词汇中
+        successful_mappings = 0
+        match_details = []  # 用于调试
+        
+        for nlp_kw in mapped_nlp_keywords:
+            # 获取该中文关键词对应的英文关键词列表
+            english_equivalents = self.chinese_to_english_mapping[nlp_kw]
+            
+            # 检查是否至少有一个英文对应词在Code词汇部件中出现
+            for en_kw in english_equivalents:
+                en_kw_lower = en_kw.lower()
+                # 检查完整匹配或作为词根匹配（例如 clk 在 clk_in 中）
+                if en_kw_lower in code_word_parts:
+                    successful_mappings += 1
+                    match_details.append(f"{nlp_kw}→{en_kw_lower}✓")
+                    break  # 只要找到一个匹配就算成功
+            else:
+                # 没有找到任何匹配
+                match_details.append(f"{nlp_kw}→{english_equivalents}✗")
+        
+        debug_info["match_details"] = match_details  # 【新增】
+        debug_info["successful_mappings"] = successful_mappings  # 【新增】
+        debug_info["total_mapped_keywords"] = len(mapped_nlp_keywords)  # 【新增】
+        
+        if debug:
+            print(f"  [DEBUG] 匹配详情: {match_details}")
+            print(f"  [DEBUG] 成功匹配数: {successful_mappings}/{len(mapped_nlp_keywords)}")
+        
+        # 【改进】计算成功率
+        mapping_confidence = successful_mappings / len(mapped_nlp_keywords)
+        return min(mapping_confidence, 1.0), debug_info
 
-    def find_matching_rules(
-        self, req_keywords: List[str], code_keywords: List[str]
-    ) -> List[Dict]:
-        """
-        查找匹配的规则
 
-        Args:
-            req_keywords: 需求文档关键字
-            code_keywords: 代码关键字
-
-        Returns:
-            匹配的规则列表
-        """
-        matched_rules = []
-
-        for rule in self.rules:
-            req_match = any(kw in req_keywords for kw in rule["pattern_nlp"])
-            code_match = any(kw in code_keywords for kw in rule["pattern_code"])
-
-            if req_match and code_match:
-                matched_rules.append(rule)
-
-        return matched_rules
-
-    def verify_rule_match(
-        self, rule: Dict, req_keywords: List[str], code_keywords: List[str]
-    ) -> Tuple[bool, float]:
-        """
-        验证规则匹配
-
-        Args:
-            rule: 规则
-            req_keywords: 需求关键字
-            code_keywords: 代码关键字
-
-        Returns:
-            (是否匹配, 置信度) 元组
-        """
-        req_match_count = sum(1 for kw in rule["pattern_nlp"] if kw in req_keywords)
-        code_match_count = sum(1 for kw in rule["pattern_code"] if kw in code_keywords)
-
-        if req_match_count > 0 and code_match_count > 0:
-            # 计算匹配度
-            match_ratio = (req_match_count * code_match_count) / (
-                len(rule["pattern_nlp"]) * len(rule["pattern_code"])
-            )
-            confidence = rule["confidence"] * match_ratio
-            return True, confidence
-
-        return False, 0.0
 
 
 class SemanticAligner:
     """【修改】增强的语义对齐器 - 支持语法库和语义映射规则"""
 
-    def __init__(self, rules_library: Optional[MappingRulesLibrary] = None):
+    def __init__(self):
         """
         【修改】初始化增强的语义对齐器
 
         Args:
             rules_library: 映射规则库
         """
-        self.rules_library = rules_library or MappingRulesLibrary()
 
         # 【修改】初始化语法库
         self.nlp_syntax = NLPSyntaxLibrary()
@@ -685,29 +471,6 @@ class SemanticAligner:
         self.high_similarity_threshold = 0.8
         self.low_similarity_threshold = 0.5
 
-    def compute_cosine_similarity(self, vec1: np.ndarray, vec2: np.ndarray) -> float:
-        """
-        计算余弦相似度
-
-        Args:
-            vec1: 向量1
-            vec2: 向量2
-
-        Returns:
-            相似度值 [0, 1]
-        """
-        if vec1 is None or vec2 is None:
-            return 0.0
-
-        norm1 = np.linalg.norm(vec1)
-        norm2 = np.linalg.norm(vec2)
-
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-
-        similarity = np.dot(vec1, vec2) / (norm1 * norm2)
-        # 确保值在 [0, 1] 范围内
-        return max(0.0, min(1.0, (similarity + 1) / 2))
 
     def align_requirements_to_code(
         self,
@@ -736,12 +499,33 @@ class SemanticAligner:
         Returns:
             对齐结果
         """
-        # 【修改】第1步：计算向量相似度
-        similarity = self.compute_cosine_similarity(req_vector, code_vector)
 
         # 【修改】第2步：提取NLP关键字和代码构造
+        # NLP返回的是tokens列表
         req_keywords = req_elements.get("keywords", [])
-        code_keywords = list(code_elements.get("keywords", {}).keys())
+        
+        # 代码返回的keywords可能是字典（Verilog关键字） 或列表（标识符）
+        # 我们需要提取真实有意义的标识符：信号、端口、模块名等
+        code_keywords_raw = code_elements.get("keywords", {})
+        if isinstance(code_keywords_raw, dict):
+            # 如果是字典，提取键（Verilog关键字）
+            # 但这些不如实际标识符有用，所以我们改用信号和端口名
+            signals_list = code_elements.get("signals", [])
+            ports_list = code_elements.get("ports", [])
+            modules_list = code_elements.get("modules", [])
+            
+            # 从这些结构中提取实际标识符
+            code_keywords = []
+            for sig in signals_list:
+                if isinstance(sig, dict) and "name" in sig:
+                    code_keywords.append(sig["name"])
+            for port in ports_list:
+                if isinstance(port, dict) and "name" in port:
+                    code_keywords.append(port["name"])
+            code_keywords.extend(modules_list)
+        else:
+            # 如果已经是列表，直接使用
+            code_keywords = code_keywords_raw if code_keywords_raw else []
 
         # 【修改】第3步：使用语法库进行深层分析
         nlp_patterns = (
@@ -751,180 +535,114 @@ class SemanticAligner:
             self.code_syntax.extract_code_constructs(code_text) if code_text else {}
         )
 
-        # 【修改】第4步：使用语义映射规则库进行双向对齐
-        semantic_mappings = self.semantic_mapping_lib.find_semantic_mappings(
-            req_keywords, code_keywords
+        # 【改进】第4步：计算两个维度的对齐度
+        # 维度1: 细粒度关键词匹配（改进的拆分+映射表方法）
+        mapping_confidence, debug_info_mapping = self.semantic_mapping_lib.find_semantic_mappings(
+            req_keywords, code_keywords, debug=True
         )
+        
+        # 🔍 调试输出（已关闭以简化输出）
+        # print(f"  [DEBUG] req_keywords: {req_keywords[:8]}...")
+        # print(f"  [DEBUG] code_keywords: {code_keywords[:8]}...")
 
-        # 【修改】计算语义映射置信度
-        mapping_confidence = 0.0
-        if semantic_mappings:
-            mapping_scores = []
-            for rule in semantic_mappings:
-                score = self.semantic_mapping_lib.calculate_mapping_confidence(
-                    rule, req_keywords, code_keywords
-                )
-                mapping_scores.append(score)
-            mapping_confidence = np.mean(mapping_scores) if mapping_scores else 0.0
+        # 维度2: 粗粒度语义类型匹配（semantic_type重叠）
+        semantic_type_match = 0.0
+        if nlp_patterns and code_constructs:
+            nlp_types = set(v["semantic_type"] for v in nlp_patterns.values())
+            code_types = set(v["semantic_type"] for v in code_constructs.values())
+            
+            if nlp_types and code_types:
+                overlaps = len(nlp_types & code_types)
+                union = len(nlp_types | code_types)
+                semantic_type_match = overlaps / union if union > 0 else 0.0
 
-        # 【修改】第5步：原有规则匹配（保留兼容性）
-        matched_rules = self.rules_library.find_matching_rules(
-            req_keywords, code_keywords
-        )
 
-        # 【修改】第6步：综合决定对齐状态
+        # 【修改】第6步：综合决定对齐状态（同时考虑细粒度+粗粒度）
         status, confidence, reason = self._determine_alignment_status(
-            similarity,
-            matched_rules,
             req_keywords,
             code_keywords,
-            semantic_mappings,
-            mapping_confidence,
-            nlp_patterns,
-            code_constructs,
+            mapping_confidence,  # 细粒度关键词匹配
+            semantic_type_match=semantic_type_match,  # 粗粒度类型匹配
+            nlp_patterns=nlp_patterns,
+            code_constructs=code_constructs,
         )
-
-        aligned_rule = matched_rules[0]["id"] if matched_rules else None
 
         # ✨ 生成alignment_pairs - 用于深度学习模型推理
         alignment_pairs = self._generate_alignment_pairs(
-            req_keywords, code_keywords, semantic_mappings, similarity
+            req_keywords, code_keywords
         )
 
         result = AlignmentResult(
             req_id=req_id,
             code_segment=code_segment[:100],
-            similarity_score=similarity,
             status=status,
             confidence=confidence,
-            matched_rule=aligned_rule,
             reason=reason,
             mapping_confidence=mapping_confidence,  # 【修改】加入语义映射置信度
             alignment_pairs=alignment_pairs,  # ✨ 传递对齐对
+            debug_info=debug_info_mapping,  # 【新增】传递调试信息
         )
 
         return result
 
     def _determine_alignment_status(
         self,
-        similarity: float,
-        matched_rules: List[Dict],
         req_keywords: List[str],
         code_keywords: List[str],
-        semantic_mappings: List[Dict] = None,
         mapping_confidence: float = 0.0,
+        semantic_type_match: float = 0.0,
         nlp_patterns: Dict = None,
         code_constructs: Dict = None,
     ) -> Tuple[AlignmentStatus, float, str]:
         """
-        【修改】确定对齐状态 - 综合多种因素
-
+        【改进】确定对齐状态 - 结合细粒度+粗粒度匹配
+        
+        维度1: mapping_confidence = 细粒度关键词匹配（拆分+映射表方法）
+        维度2: semantic_type_match = 粗粒度语义类型匹配
+        
         Args:
-            similarity: 向量相似度
-            matched_rules: 原有规则匹配结果
             req_keywords: 需求关键字
             code_keywords: 代码关键字
-            semantic_mappings: 语义映射规则匹配结果
-            mapping_confidence: 语义映射置信度
-            nlp_patterns: NLP提取的模式
-            code_constructs: 代码提取的构造
+            mapping_confidence: 细粒度关键词对应置信度
+            semantic_type_match: 粗粒度语义类型匹配度
+            nlp_patterns: NLP提取的模式（保留向后兼容）
+            code_constructs: 代码提取的构造（保留向后兼容）
 
         Returns:
             (状态, 置信度, 原因) 元组
         """
-        semantic_mappings = semantic_mappings or []
-        nlp_patterns = nlp_patterns or {}
-        code_constructs = code_constructs or {}
-
-        # 【修改】综合相似度、规则匹配、语义映射、语法库匹配
-        pattern_match_score = 0.0
-        if nlp_patterns and code_constructs:
-            # 计算语义模式与代码构造的匹配度
-            pattern_overlaps = []
-            for pattern_name in nlp_patterns:
-                for construct_name in code_constructs:
-                    if pattern_name.replace("_", "") == construct_name.replace("_", ""):
-                        pattern_overlaps.append(1.0)
-            pattern_match_score = np.mean(pattern_overlaps) if pattern_overlaps else 0.0
-
-        # 【修改】综合评分
+        # 【改进】综合评分 = 细粒度关键词 60% + 粗粒度类型 40%
         composite_score = (
-            similarity * 0.35 + mapping_confidence * 0.35 + pattern_match_score * 0.30
+            mapping_confidence * 0.60 
+            + semantic_type_match * 0.4
         )
-
-        # 【修改】基于综合评分判定状态
-        if composite_score >= 0.85 and semantic_mappings and matched_rules:
-            # 高质量对齐：向量相似、语义映射、规则都匹配
+        
+        # 1. 高质量对齐：两个维度都不错
+        if composite_score >= 0.75:
             confidence = min(composite_score, 1.0)
-            reason = f"High-quality alignment: similarity={similarity:.3f}, mapping_conf={mapping_confidence:.3f}, pattern_match={pattern_match_score:.3f}"
+            reason = f"高质量对齐：关键词={mapping_confidence:.2f}, 类型={semantic_type_match:.2f}"
             return AlignmentStatus.ALIGNED, confidence, reason
 
-        elif composite_score >= 0.75 and (semantic_mappings or matched_rules):
-            # 良好对齐：综合评分不错且有规则支持
-            confidence = min(composite_score * 0.95, 1.0)
-            reason = f"Good alignment with rule support: composite_score={composite_score:.3f}"
+        # 2. 良好对齐：综合分达标
+        elif composite_score >= 0.55:
+            confidence = min(composite_score * 0.9, 1.0)
+            reason = f"良好对齐：综合评分={composite_score:.2f}"
             return AlignmentStatus.ALIGNED, confidence, reason
 
-        elif composite_score >= 0.65 and semantic_mappings:
-            # 可疑对齐：有语义映射但其他指标一般
-            confidence = min(composite_score * 0.75, 1.0)
-            reason = f"Suspicious: semantic mappings found but weak similarity (sim={similarity:.3f})"
+        # 3. 可疑对齐：单个维度尚可但综合偏弱
+        elif composite_score >= 0.35 or mapping_confidence >= 0.3 or semantic_type_match >= 0.4:
+            confidence = min(composite_score * 0.7, 1.0)
+            reason = f"可疑对齐：关键词={mapping_confidence:.2f}, 类型={semantic_type_match:.2f}"
             return AlignmentStatus.SUSPICIOUS, confidence, reason
 
-        elif similarity >= self.high_similarity_threshold and matched_rules:
-            max_rule_confidence = max(rule["confidence"] for rule in matched_rules)
-            confidence = (similarity + max_rule_confidence) / 2
-            return (
-                AlignmentStatus.ALIGNED,
-                confidence,
-                "High similarity with rule match",
-            )
-
-        elif similarity >= self.similarity_threshold:
-            if matched_rules or semantic_mappings:
-                max_confidence = max(
-                    [rule["confidence"] for rule in matched_rules]
-                    + [mapping_confidence]
-                    if semantic_mappings
-                    else [rule["confidence"] for rule in matched_rules]
-                )
-                confidence = (similarity + max_confidence) / 2
-                return (
-                    AlignmentStatus.ALIGNED,
-                    confidence,
-                    "Threshold met with rule/mapping support",
-                )
-            else:
-                return (
-                    AlignmentStatus.SUSPICIOUS,
-                    similarity * 0.8,
-                    "Similarity ok but no rule match",
-                )
-
-        elif similarity >= self.low_similarity_threshold and (
-            matched_rules or semantic_mappings
-        ):
-            max_confidence = max(
-                [rule["confidence"] for rule in matched_rules] + [mapping_confidence]
-                if semantic_mappings
-                else [rule["confidence"] for rule in matched_rules]
-            )
-            confidence = (similarity + max_confidence) / 2 * 0.7
-            return AlignmentStatus.INDIRECT, confidence, "Indirect mapping via rules"
-
+        # 4. 无有效匹配
         else:
-            return (
-                AlignmentStatus.UNALIGNED,
-                similarity * 0.5,
-                "No sufficient alignment evidence",
-            )
-
+            return AlignmentStatus.UNALIGNED, max(composite_score * 0.3, 0.0), f"对齐失败：关键词={mapping_confidence:.2f}, 类型={semantic_type_match:.2f}"
+    
     def _generate_alignment_pairs(
         self,
         req_keywords: List[str],
         code_keywords: List[str],
-        semantic_mappings: List[Dict],
-        similarity: float,
     ) -> List[Dict]:
         """
         ✨ 生成对齐对 - 用于深度学习模型推理
@@ -932,62 +650,30 @@ class SemanticAligner:
         Args:
             req_keywords: 需求关键字
             code_keywords: 代码关键字
-            semantic_mappings: 语义映射规则
-            similarity: 向量相似度
 
         Returns:
             对齐对列表 [{'req_idx': i, 'code_idx': j, 'score': s}, ...]
         """
         alignment_pairs = []
-        req_len = len(req_keywords)
-        code_len = len(code_keywords)
-
-        if req_len == 0 or code_len == 0:
-            # 如果没有关键字，返回全局相似度作为单个对齐对
-            if req_len > 0 and code_len > 0:
-                alignment_pairs.append(
-                    {
-                        "req_idx": 0,
-                        "code_idx": 0,
-                        "score": similarity,
-                        "confidence": similarity,
-                    }
-                )
-            return alignment_pairs
-
-        # 从语义映射规则中计算关键字级别的对齐
-        for mapping in semantic_mappings:
-            nlp_kws = mapping.get("nlp_keywords", [])
-            code_kws = mapping.get("code_patterns", [])
-            score = mapping.get("mapping_score", 0.5)
-
-            # 找到匹配的关键字对
-            for req_kw in nlp_kws:
-                for i, req_kw_item in enumerate(req_keywords):
-                    if req_kw.lower() in req_kw_item.lower():
-                        for code_kw in code_kws:
-                            for j, code_kw_item in enumerate(code_keywords):
-                                if code_kw.lower() in code_kw_item.lower():
-                                    alignment_pairs.append(
-                                        {
-                                            "req_idx": i,
-                                            "code_idx": j,
-                                            "score": score,
-                                            "confidence": score * similarity,
-                                        }
-                                    )
-
-        # 如果没有语义映射对齐，使用向量相似度
-        if not alignment_pairs and req_len > 0 and code_len > 0:
-            alignment_pairs.append(
-                {
-                    "req_idx": 0,
-                    "code_idx": 0,
-                    "score": similarity,
-                    "confidence": similarity,
-                }
-            )
-
+        
+        # 基于关键词相似度生成对齐对
+        for i, req_kw in enumerate(req_keywords):
+            for j, code_kw in enumerate(code_keywords):
+                # 简单起见：如果两个关键词的小写形式相同或有子字符串包含关系，就算匹配
+                req_lower = req_kw.lower()
+                code_lower = code_kw.lower()
+                
+                if req_lower == code_lower or req_lower in code_lower or code_lower in req_lower:
+                    alignment_pairs.append(
+                        {
+                            "req_idx": i,
+                            "code_idx": j,
+                            "score": 0.9,  # 直接关键词匹配
+                            "confidence": 0.9,
+                        }
+                    )
+        
+        # 如果没有关键词对齐，返回空列表（表示无法对齐）
         return alignment_pairs
 
     def batch_align(
@@ -1058,8 +744,7 @@ def align_semantics(
         "alignment_result": result,
         "status": result.status.value,
         "confidence": result.confidence,
-        "similarity": result.similarity_score,
-        "mapping_confidence": result.mapping_confidence,  # 【修改】加入映射置信度
+        "mapping_confidence": result.mapping_confidence,  # 关键词匹配置信度
     }
 
 
@@ -1123,14 +808,10 @@ if __name__ == "__main__":
     }
 
     print(f"1. 对齐状态: {status_cn_map.get(alignment_result.status.value, '未知')}")
-    print(f"2. 向量相似度: {alignment_result.similarity_score:.4f}")
+    print(f"2. 关键词匹配置信度: {alignment_result.mapping_confidence:.4f}")
     print(f"3. 综合置信度: {alignment_result.confidence:.4f}")
-    print(f"4. 【修改】语义映射置信度: {alignment_result.mapping_confidence:.4f}")
-    print(
-        f"5. 匹配规则ID: {alignment_result.matched_rule if alignment_result.matched_rule else '无'}"
-    )
-    print(f"6. 判定原因: {alignment_result.reason}")
-    print(f"7. 代码片段预览: {alignment_result.code_segment[:80]}...")
+    print(f"4. 判定原因: {alignment_result.reason}")
+    print(f"5. 代码片段预览: {alignment_result.code_segment[:80]}...")
 
     # 额外打印匹配到的FPGA术语（如果有）
     fpga_terms = extraction_result["requirement"]["semantic_elements"].get(
@@ -1164,32 +845,32 @@ if __name__ == "__main__":
 
     print("=" * 100 + "\n")
 
-# 严格按照你的格式编写测试
-eq_text = "FPGA双端口RAM模块，数据位宽固定为8比特；采用单总线时钟实现双端口RAM逻辑；端口A与总线绑定，端口B为通用业务端口；总线侧读写控制规则：在1个时钟周期内同时置位片选信号、8位地址信号、读写控制信号，即可执行读或写操作；写操作时序：写数据在寻址时立即被写入对应内存地址；读操作时序：读请求触发后，有效数据标志信号将延迟1个时钟周期脉冲，此时总线读数据端口输出对应内存数据；模块可配置参数：DEPTH为双端口RAM的存储深度，代表存储的8比特字长数据的个数。"
-code_text = "module Bus8_DPRAM #(DEPTH = 256)(input i_Bus_Rst_L,input i_Bus_Clk,input i_Bus_CS,input i_Bus_Wr_Rd_n,input [$clog2(DEPTH)-1:0] i_Bus_Addr8,input [7:0] i_Bus_Wr_Data,output [7:0] o_Bus_Rd_Data,output reg o_Bus_Rd_DV,input [7:0] i_PortB_Data,input [$clog2(DEPTH)-1:0] i_PortB_Addr8,input i_PortB_WE,output [7:0] o_PortB_Data);Dual_Port_RAM_Single_Clock #(.WIDTH(8),.DEPTH(DEPTH)) Bus_RAM_Inst(.i_Clk(i_Bus_Clk),.i_PortA_Data(i_Bus_Wr_Data),.i_PortA_Addr(i_Bus_Addr8),.i_PortA_WE(i_Bus_Wr_Rd_n & i_Bus_CS),.o_PortA_Data(o_Bus_Rd_Data),.i_PortB_Data(i_PortB_Data),.i_PortB_Addr(i_PortB_Addr8),.i_PortB_WE(i_PortB_WE),.o_PortB_Data(o_PortB_Data));always @(posedge i_Bus_Clk)begin o_Bus_Rd_DV <= i_Bus_CS & ~i_Bus_Wr_Rd_n;end endmodule"
+# 测试
+# eq_text = "FPGA双端口RAM模块，数据位宽固定为8比特；采用单总线时钟实现双端口RAM逻辑；端口A与总线绑定，端口B为通用业务端口；总线侧读写控制规则：在1个时钟周期内同时置位片选信号、8位地址信号、读写控制信号，即可执行读或写操作；写操作时序：写数据在寻址时立即被写入对应内存地址；读操作时序：读请求触发后，有效数据标志信号将延迟1个时钟周期脉冲，此时总线读数据端口输出对应内存数据；模块可配置参数：DEPTH为双端口RAM的存储深度，代表存储的8比特字长数据的个数。"
+# code_text = "module Bus8_DPRAM #(DEPTH = 256)(input i_Bus_Rst_L,input i_Bus_Clk,input i_Bus_CS,input i_Bus_Wr_Rd_n,input [$clog2(DEPTH)-1:0] i_Bus_Addr8,input [7:0] i_Bus_Wr_Data,output [7:0] o_Bus_Rd_Data,output reg o_Bus_Rd_DV,input [7:0] i_PortB_Data,input [$clog2(DEPTH)-1:0] i_PortB_Addr8,input i_PortB_WE,output [7:0] o_PortB_Data);Dual_Port_RAM_Single_Clock #(.WIDTH(8),.DEPTH(DEPTH)) Bus_RAM_Inst(.i_Clk(i_Bus_Clk),.i_PortA_Data(i_Bus_Wr_Data),.i_PortA_Addr(i_Bus_Addr8),.i_PortA_WE(i_Bus_Wr_Rd_n & i_Bus_CS),.o_PortA_Data(o_Bus_Rd_Data),.i_PortB_Data(i_PortB_Data),.i_PortB_Addr(i_PortB_Addr8),.i_PortB_WE(i_PortB_WE),.o_PortB_Data(o_PortB_Data));always @(posedge i_Bus_Clk)begin o_Bus_Rd_DV <= i_Bus_CS & ~i_Bus_Wr_Rd_n;end endmodule"
 
-# 1. 执行双向语义提取（保留你原有的函数）
-extraction_result = extract_bidirectional_semantics(eq_text, code_text)
+# # 1. 执行双向语义提取（保留你原有的函数）
+# extraction_result = extract_bidirectional_semantics(eq_text, code_text)
 
-# 2. 执行语义对齐（新增核心功能，无缝衔接）
-req_data = {
-    "id": 1,
-    "elements": extraction_result["requirement"]["semantic_elements"],
-    "vector": extraction_result["requirement"]["semantic_vector"],
-}
-code_data = {
-    "id": 1,
-    "elements": extraction_result["code"]["semantic_elements"],
-    "vector": extraction_result["code"]["semantic_vector"],
-    "code_segment": code_text,
-}
-alignment_result = align_semantics(req_data, code_data, eq_text, code_text)
+# # 2. 执行语义对齐（新增核心功能，无缝衔接）
+# req_data = {
+#     "id": 1,
+#     "elements": extraction_result["requirement"]["semantic_elements"],
+#     "vector": extraction_result["requirement"]["semantic_vector"],
+# }
+# code_data = {
+#     "id": 1,
+#     "elements": extraction_result["code"]["semantic_elements"],
+#     "vector": extraction_result["code"]["semantic_vector"],
+#     "code_segment": code_text,
+# }
+# alignment_result = align_semantics(req_data, code_data, eq_text, code_text)
 
-# 整合完整结果（语义提取+语义对齐）
-complete_result = {"双向语义提取": extraction_result, "语义对齐结果": alignment_result}
+# # 整合完整结果（语义提取+语义对齐）
+# complete_result = {"双向语义提取": extraction_result, "语义对齐结果": alignment_result}
 
-# 严格按照你的格式打印输出
-print("=" * 100)
-print("✅ 等价文本与代码的语义提取+对齐完整Result结果：")
-print("=" * 100)
-print(complete_result)
+# # 严格按照你的格式打印输出
+# print("=" * 100)
+# print("✅ 等价文本与代码的语义提取+对齐完整Result结果：")
+# print("=" * 100)
+# print(complete_result)

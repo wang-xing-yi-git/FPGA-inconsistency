@@ -66,8 +66,8 @@ def example_simple_detection():
     )
     
     print(f"  对齐状态: {alignment.status.value}")
-    print(f"  相似度: {alignment.similarity_score:.2f}")
-    print(f"  置信度: {alignment.confidence:.2f}")
+    print(f"  关键词匹配: {alignment.mapping_confidence:.2f}")
+    print(f"  综合置信度: {alignment.confidence:.2f}")
     
     # 3. 不一致检测
     print("\n[3] 不一致检测...")
@@ -166,14 +166,14 @@ def example_batch_processing():
             'id': req_id,
             'requirement': requirement,
             'alignment_status': alignment.status.value,
-            'similarity': alignment.similarity_score,
+            'keyword_match': alignment.mapping_confidence,  # 【改进】细粒度关键词匹配
             'total_issues': inconsistencies['total_issues']
         }
         results.append(result)
         
         print(f"\n  样本 {req_id}:")
         print(f"    对齐: {alignment.status.value}")
-        print(f"    相似度: {alignment.similarity_score:.2f}")
+        print(f"    关键词: {alignment.mapping_confidence:.2f}")
         print(f"    不一致: {inconsistencies['total_issues']} 个")
     
     # 统计汇总

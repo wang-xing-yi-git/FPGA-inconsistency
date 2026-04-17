@@ -13,14 +13,12 @@ import os
 
 import sys
 from pathlib import Path
-
 # 获取当前脚本所在的目录（data文件夹）
 current_dir = Path(__file__).parent
-# 获取项目根目录（FPGA-inconsistency文件夹），即data的父目录的父目录
+# 获取项目根目录（FPGA-inconsistency文件夹），即data的父目录
 root_dir = current_dir.parent.parent
 # 将项目根目录添加到Python搜索路径中
 sys.path.insert(0, str(root_dir))
-
 from src.deep_learning_models_v2 import ImplicitInconsistencyModel
 
 
@@ -246,7 +244,7 @@ if __name__ == "__main__":
         model_save_path=MODEL_PATH,
         num_epochs=50,
         batch_size=16,
-        learning_rate=0.001,
+        learning_rate=0.0005,
     )
 
     if model is not None:
