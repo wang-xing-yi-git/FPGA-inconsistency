@@ -694,10 +694,10 @@ python example_usage.py
 # 生成合成数据
 python data/generate_training_data.py --num-samples 1000
 
-python data/generate_training_data.py --num-samples 80 --output data/implicit_inconsistency_training_data_v3.json --test-output data/implicit_inconsistency_test_data_v3.json --use-real-encoding 2>&1
+python data/generate_training_data.py --num-samples 80 --output data/implicit_inconsistency_training_data_v3.json --test-output data/implicit_inconsistency_test_data_v2.json --use-real-encoding
 
 # 训练模型
-python models/trained/train_implicit_model_v2.py
+python models/trained/train_implicit_model_v3.py
 
 # 评估性能
 python models/trained/evaluate_model.py

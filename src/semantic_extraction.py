@@ -753,13 +753,21 @@ class NLPSemanticExtractor:
             "output": "io",
             "synchronous": "timing",
             "asynchronous": "control",
-            "rising_edge": "event",
-            "falling_edge": "event",
+            "posedge": "event",
+            "negedge": "event",
             "frequency": "timing",
             "width": "dimension",
+            # 新增英文术语（配套中文）
+            "enable": "control",
+            "divider": "timing",
+            "encoder": "logic",
+            "mux": "logic",
+            "latch": "storage",
         }
 
+        # 改动 扩充中文知识库（扩大词汇量）
         fpga_keywords_zh = {
+            # 原有基础词汇（保留）
             "模块": "component",
             "时钟": "clock",
             "复位": "reset",
@@ -778,9 +786,20 @@ class NLPSemanticExtractor:
             "脉冲": "signal",
             "边沿": "event",
             "时序": "timing",
-            "控制": "control",
-            "触发": "event",
             "清零": "logic",
+            # 👇 新增大量FPGA专业词
+            "移位寄存器": "storage",
+            "锁存器": "storage",
+            "多路选择器": "logic",
+            "编码器": "logic",
+            "译码器": "logic",
+            "分频器": "timing",
+            "时钟分频": "timing",
+            "时序逻辑": "timing",
+            "使能": "control",
+            "置位": "logic",
+            "优先级": "logic",
+            "端口": "io",
         }
 
         # 检测语言
@@ -792,21 +811,37 @@ class NLPSemanticExtractor:
         # 选择对应的FPGA关键词库
         fpga_keywords = fpga_keywords_zh if detected_lang == "zh" else fpga_keywords_en
 
+        # 改动提取逻辑：全文匹配+分词匹配
+        fpga_terms_list = [] # 给keywords用
+        fpga_terms_detail = [] # 给fpga_terms用
+        
+        # 1. 优先【全文匹配】（解决分词拆碎/漏提，核心改动）
+        for term, term_type in fpga_keywords.items():
+            if term in text and term not in fpga_terms_list:
+                fpga_terms_list.append(term)
+                fpga_terms_detail.append({"term": term, "type": term_type})
+        
+        # 2. 原有【分词匹配】（保留，做精准补充，兼容原有逻辑）
+        for token in tokens:
+            if token in fpga_keywords and token not in fpga_terms_list:
+                # 1. 收集纯关键词（字符串列表）
+                fpga_terms_list.append(token)
+                # 2. 收集详细术语（带类型的字典）
+                fpga_terms_detail.append({
+                    "term": token, 
+                    "type": fpga_keywords[token]
+                    })
+
+        # 构造结果
         semantic_elements = {
-            "keywords": tokens,
-            "fpga_terms": [],
+            "keywords": fpga_terms_list,    # 纯专业关键词
+            "tokens": tokens,               # 原始全部分词（备用）
+            "fpga_terms": fpga_terms_detail,# 术语详情
             "element_type": "nlp_text",
             "element_count": len(tokens),
             "language": detected_lang,
             "syntax_dependencies": dependency_structure,
         }
-
-        # 识别FPGA领域术语
-        for token in tokens:
-            if token in fpga_keywords:
-                semantic_elements["fpga_terms"].append(
-                    {"term": token, "type": fpga_keywords[token]}
-                )
 
         return semantic_elements
 
@@ -2666,7 +2701,7 @@ class CodeSemanticExtractor:
 
     def extract_semantic_elements(self, code: str) -> Dict:
         """
-        【修改】提取代码的语义要素 - 基于优化后的AST
+        【改进】提取代码的语义要素 - 基于优化后的AST，直接从结构提取关键词
 
         Args:
             code: Verilog代码文本
@@ -2677,37 +2712,77 @@ class CodeSemanticExtractor:
         # 【优化】先构建AST（使用新的多行支持）
         ast_root = self.build_ast(code)
         
-        # 修改：从AST直接统计数据（替换原parse_verilog_code）提取完整语义信息，不止数量，还包括详细属性
+        # 【改进】从AST直接提取完整语义信息
         modules = []
         port_list = []      # 端口完整信息：方向+名称
         signal_list = []    # 信号完整信息：类型+名称
-        trigger_list = []   # 触发条件：时钟/复位
+        trigger_list = []   # 触发条件：敏感列表
+        instantiation_list = []  # 【新增】模块实例化
         
+        # 直接从原始代码提取所有端口，作为AST提取的补充，彻底解决AST端口丢失问题
+        def extract_ports_from_verilog(code: str):
+            """通用Verilog端口提取正则，兼容所有写法，不依赖AST"""
+            ports = []
+            # 正则匹配 module 括号内的所有端口（核心：直接抓原始定义）
+            module_pattern = re.search(r'module\s+\w+\s*\((.*?)\);', code, re.DOTALL | re.MULTILINE)
+            if not module_pattern:
+                return ports
+            port_content = module_pattern.group(1)
+            # 匹配所有 input/output/inout 端口（通用规则）
+            port_pattern = re.findall(r'(input|output|inout)\s*(?:\[\d+:\d+\])?\s*(\w+)', port_content)
+            for direction, name in port_pattern:
+                ports.append({"direction": direction, "name": name, "width": None})
+            return ports
+
+        # 执行通用提取（兜底+主用，彻底解决AST端口丢失问题）
+        universal_ports = extract_ports_from_verilog(code)
+        port_list.extend(universal_ports)
+
+        def traverse(node):
+            # 👇 你的原有判断逻辑，完全不动！
+            if node["type"] == "port":
+                port_info = {
+                    "direction": node["attributes"]["direction"],
+                    "name": node["attributes"]["name"],
+                    "width": node["attributes"].get("width")
+                }
+                port_list.append(port_info)
+            elif node["type"] == "signal":
+                signal_info = {
+                    "type": node["attributes"]["type"],
+                    "name": node["attributes"]["name"],
+                    "width": node["attributes"].get("width")
+                }
+                signal_list.append(signal_info)
+            elif node["type"] == "always_block":
+                trigger_list.append({
+                    "sensitivity_list": node["attributes"]["sensitivity_list"],
+                    "behavior": node.get("behavior", "sequential")
+                })
+            elif node["type"] == "instantiation":
+                instantiation_list.append({
+                    "module_name": node["attributes"].get("module_name"),
+                    "instance_name": node["attributes"].get("instance_name")
+                })
+            # 👇 核心：递归遍历所有子节点（自动处理任意多层嵌套）
+            for child in node.get("children", []):
+                traverse(child)
+
+        # 递归遍历AST根节点，提取所有模块名和语义要素
         for module_node in ast_root["children"]:
             modules.append(module_node["name"])
-            for child in module_node["children"]:
-                # 提取端口
-                if child["type"] == "port":
-                    port_info = {
-                        "direction": child["attributes"]["direction"],
-                        "name": child["attributes"]["name"]
-                    }
-                    port_list.append(port_info)
-                # 提取信号
-                elif child["type"] == "signal":
-                    signal_info = {
-                        "type": child["attributes"]["type"],
-                        "name": child["attributes"]["name"]
-                    }
-                    signal_list.append(signal_info)
-                # 提取always触发条件（时钟/复位）
-                elif child["type"] == "always_block":
-                    trigger_list.append(child["attributes"]["sensitivity_list"])
+        traverse(module_node)  # 调用递归，一键遍历所有嵌套层级
                 
         # 统计数量（保留原有字段，兼容旧代码）
         port_count = len(port_list)
         signal_count = len(signal_list)
         behavior_count = len(trigger_list)
+
+        # 【改进】直接从AST结构提取关键词，而非重新扫描
+        extracted_keywords = self._extract_keywords_from_ast(port_list, signal_list, modules, instantiation_list)
+        
+        # 【改进】提取FPGA特征（包括从triggers中分析）
+        fpga_features = self._extract_fpga_features_advanced(code, trigger_list)
 
         # 兼容旧逻辑 + 新增精准语义
         semantic_elements = {
@@ -2716,13 +2791,14 @@ class CodeSemanticExtractor:
             "port_count": port_count,        # 原有数量
             "signal_count": signal_count,    # 原有数量
             "behavior_count": behavior_count,# 原有数量
-            # 👇 新增：不一致监测核心字段
+            # 👇 核心字段：直接用于不一致检测
             "ports": port_list,          
             "signals": signal_list,
             "triggers": trigger_list,
+            "instantiations": instantiation_list,  # 【新增】
             
-            "keywords": self._extract_keywords(code),
-            "fpga_features": self._extract_fpga_features(code),
+            "keywords": extracted_keywords,  # 【改进】直接从AST提取
+            "fpga_features": fpga_features,  # 【改进】增强的特征分析
             "ast_nodes": self._ast_to_dict(ast_root),
             "code_complexity": ast_root["metadata"]["code_complexity"],
         }
@@ -2779,15 +2855,60 @@ class CodeSemanticExtractor:
 
         return node_dict
 
+    def _extract_keywords_from_ast(self, port_list: List[Dict], signal_list: List[Dict], 
+                                     modules: List[str], instantiation_list: List[Dict]) -> List[str]:
+        """
+        【新增】直接从AST结构提取关键词 - 替代正则扫描
+        
+        Args:
+            port_list: 端口列表
+            signal_list: 信号列表
+            modules: 模块名列表
+            instantiation_list: 实例化列表
+            
+        Returns:
+            关键词列表（标识符+结构组合）
+        """
+        keywords = []
+        
+        # 【改进】从端口提取：name + direction组合 （例如 "clk_input", "data_output"）
+        for port in port_list:
+            keywords.append(port["name"])  # 基础名称
+            # 【新增】方向标记（用于时序分析）
+            direction = port["direction"].lower()
+            keywords.append(f"{port['name']}_{direction}")  # 例如 clk_input
+        
+        # 【改进】从信号提取：name + type组合
+        for signal in signal_list:
+            keywords.append(signal["name"])  # 基础名称
+            # 【新增】类型标记（用于数据流分析）
+            sig_type = signal["type"].lower()
+            keywords.append(f"{signal['name']}_{sig_type}")  # 例如 counter_reg
+        
+        # 【新增】添加模块名（结构标记）
+        keywords.extend(modules)
+        
+        # 【新增】从实例化提取模块名（体现设计层级）
+        for inst in instantiation_list:
+            if inst["module_name"]:
+                keywords.append(inst["module_name"])
+            if inst["instance_name"]:
+                keywords.append(inst["instance_name"])
+        
+        # 【改进】返回列表而非字典（简化对齐算法）
+        return list(set(keywords))  # 去重
+    
     def _extract_keywords(self, code: str) -> Dict:
         """
-        【优化】提取代码中的关键字 - 改进关键词检测与统计
+        【保留】提取代码中的Verilog关键字统计 - 兼容旧代码
+        
+        用于代码复杂度分析，不再用于对齐
 
         Args:
             code: 代码文本
 
         Returns:
-            关键字统计字典 {keyword: {count, type, positions}}
+            关键字统计字典 {keyword: count}
         """
         # 【优化】先移除注释避免干扰
         code_clean = self._remove_comments(code)
@@ -2803,31 +2924,77 @@ class CodeSemanticExtractor:
                 count = len(matches)
                 
                 if count > 0:
-                    # 【优化】提取关键词出现位置（行号）
-                    positions = []
-                    line_count = 0
-                    for i, match in enumerate(matches):
-                        line_num = code_clean[:match.start()].count('\n')
-                        positions.append(line_num)
-                        if i < 3:  # 仅保留前3个位置以节省空间
-                            line_count = max(line_count, line_num)
-                    
-                    keywords_found[keyword] = {
-                        "count": count,
-                        "type": self.verilog_keywords[keyword],
-                        "first_position_line": positions[0] if positions else -1,
-                    }
+                    keywords_found[keyword] = count
             except Exception:
                 # 【优化】容错处理，跳过匹配失败的关键词
                 pass
 
         return keywords_found
 
-        return keywords_found
 
+    def _extract_fpga_features_advanced(self, code: str, trigger_list: List[Dict]) -> List[Dict]:
+        """
+        【改进】提取FPGA特定的设计特征 - 从代码和trigger_list分析
+
+        Args:
+            code: 代码文本
+            trigger_list: 【新增】always块的敏感列表，用于分析时序特性
+
+        Returns:
+            设计特征列表
+        """
+        features = []
+        code_lower = code.lower()
+
+        # 检测时序逻辑
+        if "always" in code_lower:
+            features.append({"type": "sequential_logic", "detected": True})
+
+        # 【改进】从trigger_list分析时钟特性
+        clock_detected = False
+        reset_detected = False
+        edge_triggered = False
+        
+        for trigger in trigger_list:
+            sens_list = trigger.get("sensitivity_list", "").lower()
+            if "clk" in sens_list or "clock" in sens_list:
+                clock_detected = True
+            if "posedge" in sens_list or "negedge" in sens_list:
+                edge_triggered = True
+            if "rst" in sens_list or "reset" in sens_list:
+                reset_detected = True
+        
+        # 【改进】从trigger_list或代码检测
+        if clock_detected or "clk" in code_lower or "clock" in code_lower:
+            features.append({"type": "clock_domain", "detected": True})
+        
+        if reset_detected or "rst" in code_lower or "reset" in code_lower:
+            features.append({"type": "reset_mechanism", "detected": True})
+        
+        if edge_triggered:
+            features.append({"type": "edge_triggered", "detected": True})
+
+        # 检测异步设计
+        if "async" in code_lower:
+            features.append({"type": "asynchronous", "detected": True})
+
+        # 检测参数化
+        if "parameter" in code_lower:
+            features.append({"type": "parameterized", "detected": True})
+        
+        # 【新增】检测组合逻辑
+        if "assign" in code_lower or "wire" in code_lower:
+            features.append({"type": "combinational_logic", "detected": True})
+        
+        # 【新增】检测状态机
+        if "case" in code_lower or "default" in code_lower:
+            features.append({"type": "state_machine", "detected": True})
+
+        return features
+    
     def _extract_fpga_features(self, code: str) -> List[Dict]:
         """
-        提取FPGA特定的设计特征
+        【保留】提取FPGA特定的设计特征 - 兼容旧代码
 
         Args:
             code: 代码文本
@@ -2835,30 +3002,7 @@ class CodeSemanticExtractor:
         Returns:
             设计特征列表
         """
-        features = []
-
-        # 【修改】统一使用'type'键而非'feature'，确保与inconsistency_detector的兼容性
-        # 检测时序逻辑
-        if "always" in code.lower():
-            features.append({"type": "sequential_logic", "detected": True})
-
-        # 检测复位信号
-        if "rst" in code.lower() or "reset" in code.lower():
-            features.append({"type": "reset_mechanism", "detected": True})
-
-        # 检测时钟
-        if "clk" in code.lower() or "clock" in code.lower():
-            features.append({"type": "clock_domain", "detected": True})
-
-        # 检测异步设计
-        if "async" in code.lower():
-            features.append({"type": "asynchronous", "detected": True})
-
-        # 检测参数化
-        if "parameter" in code.lower():
-            features.append({"type": "parameterized", "detected": True})
-
-        return features
+        return self._extract_fpga_features_advanced(code, [])
 
     def get_semantic_vector(self, code: str) -> np.ndarray:
         """

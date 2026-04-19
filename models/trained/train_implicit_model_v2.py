@@ -232,9 +232,9 @@ def evaluate_model(
 if __name__ == "__main__":
     import sys
 
-    TRAIN_DATA = "data/implicit_inconsistency_training_data_v3.json"
-    TEST_DATA = "data/implicit_inconsistency_test_data_v3.json"
-    MODEL_PATH = "models/implicit_model_v3.pth"
+    TRAIN_DATA = "data/implicit_inconsistency_training_data_v2.json"
+    TEST_DATA = "data/implicit_inconsistency_test_data_v2.json"
+    MODEL_PATH = "models/implicit_model_v2.pth"
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 

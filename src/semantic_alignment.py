@@ -476,7 +476,7 @@ class SemanticAligner:
         self,
         req_id: int,
         req_elements: Dict,
-        req_vector: np.ndarray,
+        req_vector: np.ndarray, # 原本是想计算余弦相似度的，后来发现这个向量可能不太可靠，所以改成了mapping_confidence
         code_elements: Dict,
         code_vector: np.ndarray,
         code_segment: str,
@@ -500,7 +500,7 @@ class SemanticAligner:
             对齐结果
         """
 
-        # 【修改】第2步：提取NLP关键字和代码构造
+        # 【修改】第1步：提取NLP关键字和代码构造
         # NLP返回的是tokens列表
         req_keywords = req_elements.get("keywords", [])
         
@@ -527,7 +527,7 @@ class SemanticAligner:
             # 如果已经是列表，直接使用
             code_keywords = code_keywords_raw if code_keywords_raw else []
 
-        # 【修改】第3步：使用语法库进行深层分析
+        # 【修改】第2步：使用语法库进行深层分析
         nlp_patterns = (
             self.nlp_syntax.extract_semantic_patterns(req_text) if req_text else {}
         )
@@ -535,12 +535,15 @@ class SemanticAligner:
             self.code_syntax.extract_code_constructs(code_text) if code_text else {}
         )
 
-        # 【改进】第4步：计算两个维度的对齐度
+        print("【调试】需求关键词：", req_keywords)
+        print("【调试】代码关键词（含output）：", code_keywords)  # 看这里！！！
+
+        # 【改进】第3步：计算三个维度的对齐度
         # 维度1: 细粒度关键词匹配（改进的拆分+映射表方法）
         mapping_confidence, debug_info_mapping = self.semantic_mapping_lib.find_semantic_mappings(
             req_keywords, code_keywords, debug=True
         )
-        
+
         # 🔍 调试输出（已关闭以简化输出）
         # print(f"  [DEBUG] req_keywords: {req_keywords[:8]}...")
         # print(f"  [DEBUG] code_keywords: {code_keywords[:8]}...")
@@ -555,21 +558,28 @@ class SemanticAligner:
                 overlaps = len(nlp_types & code_types)
                 union = len(nlp_types | code_types)
                 semantic_type_match = overlaps / union if union > 0 else 0.0
+        
+        # 【新增】维度3: 端口与时序特征匹配（利用ports、triggers、fpga_features）
+        port_timing_match = self._calculate_port_timing_match(
+            req_elements, code_elements, req_keywords
+        )
+        debug_info_mapping["port_timing_match"] = port_timing_match
 
 
-        # 【修改】第6步：综合决定对齐状态（同时考虑细粒度+粗粒度）
+        # 【修改】第4步：综合决定对齐状态（同时考虑细粒度+粗粒度+时序特征）
         status, confidence, reason = self._determine_alignment_status(
             req_keywords,
             code_keywords,
             mapping_confidence,  # 细粒度关键词匹配
             semantic_type_match=semantic_type_match,  # 粗粒度类型匹配
+            port_timing_match=port_timing_match,  # 【新增】端口与时序特征
             nlp_patterns=nlp_patterns,
             code_constructs=code_constructs,
         )
 
         # ✨ 生成alignment_pairs - 用于深度学习模型推理
         alignment_pairs = self._generate_alignment_pairs(
-            req_keywords, code_keywords
+            req_keywords, code_keywords, debug_info_mapping
         )
 
         result = AlignmentResult(
@@ -591,36 +601,40 @@ class SemanticAligner:
         code_keywords: List[str],
         mapping_confidence: float = 0.0,
         semantic_type_match: float = 0.0,
+        port_timing_match: float = 0.0,  # 【新增】
         nlp_patterns: Dict = None,
         code_constructs: Dict = None,
     ) -> Tuple[AlignmentStatus, float, str]:
         """
-        【改进】确定对齐状态 - 结合细粒度+粗粒度匹配
+        【改进】确定对齐状态 - 结合细粒度+粗粒度+时序特征匹配
         
         维度1: mapping_confidence = 细粒度关键词匹配（拆分+映射表方法）
         维度2: semantic_type_match = 粗粒度语义类型匹配
+        维度3: port_timing_match = 端口与时序特征匹配【新增】
         
         Args:
             req_keywords: 需求关键字
             code_keywords: 代码关键字
             mapping_confidence: 细粒度关键词对应置信度
             semantic_type_match: 粗粒度语义类型匹配度
+            port_timing_match: 端口与时序特征匹配度【新增】
             nlp_patterns: NLP提取的模式（保留向后兼容）
             code_constructs: 代码提取的构造（保留向后兼容）
 
         Returns:
             (状态, 置信度, 原因) 元组
         """
-        # 【改进】综合评分 = 细粒度关键词 60% + 粗粒度类型 40%
+        # 【改进】综合评分 = 细粒度关键词 50% + 粗粒度类型 30% + 端口时序 20%
         composite_score = (
-            mapping_confidence * 0.60 
-            + semantic_type_match * 0.4
+            mapping_confidence * 0.50 
+            + semantic_type_match * 0.30
+            + port_timing_match * 0.20  # 【新增】
         )
         
-        # 1. 高质量对齐：两个维度都不错
+        # 1. 高质量对齐：多个维度都不错
         if composite_score >= 0.75:
             confidence = min(composite_score, 1.0)
-            reason = f"高质量对齐：关键词={mapping_confidence:.2f}, 类型={semantic_type_match:.2f}"
+            reason = f"高质量对齐：关键词={mapping_confidence:.2f}, 类型={semantic_type_match:.2f}, 时序={port_timing_match:.2f}"
             return AlignmentStatus.ALIGNED, confidence, reason
 
         # 2. 良好对齐：综合分达标
@@ -632,48 +646,162 @@ class SemanticAligner:
         # 3. 可疑对齐：单个维度尚可但综合偏弱
         elif composite_score >= 0.35 or mapping_confidence >= 0.3 or semantic_type_match >= 0.4:
             confidence = min(composite_score * 0.7, 1.0)
-            reason = f"可疑对齐：关键词={mapping_confidence:.2f}, 类型={semantic_type_match:.2f}"
+            reason = f"可疑对齐：关键词={mapping_confidence:.2f}, 类型={semantic_type_match:.2f}, 时序={port_timing_match:.2f}"
             return AlignmentStatus.SUSPICIOUS, confidence, reason
 
         # 4. 无有效匹配
         else:
-            return AlignmentStatus.UNALIGNED, max(composite_score * 0.3, 0.0), f"对齐失败：关键词={mapping_confidence:.2f}, 类型={semantic_type_match:.2f}"
+            return AlignmentStatus.UNALIGNED, max(composite_score * 0.3, 0.0), f"对齐失败：关键词={mapping_confidence:.2f}, 类型={semantic_type_match:.2f}, 时序={port_timing_match:.2f}"
+    
+    def _calculate_port_timing_match(
+        self, req_elements: Dict, code_elements: Dict, req_keywords: List[str]
+    ) -> float:
+        """
+        【新增】计算端口与时序特征的匹配度
+        
+        利用新提取的结构信息：ports、triggers、fpga_features
+        来改进对齐精度
+        
+        Args:
+            req_elements: 需求语义要素
+            code_elements: 代码语义要素
+            req_keywords: 需求关键词列表
+            
+        Returns:
+            端口与时序特征的匹配度 [0, 1]
+        """
+        score = 0.0
+        component_scores = []
+        
+        # 【维度1】端口方向匹配 → 修复为：精准匹配需求端口（方向+功能）
+        req_ports = req_elements.get("ports", [])
+        code_ports = code_elements.get("ports", [])
+
+        if code_ports:
+            req_text = " ".join(req_keywords).lower()
+            port_match_count = 0
+
+            # 🔥 中英文映射 + 端口功能关键词（通用所有硬件）
+            direction_map = {"input": "输入", "output": "输出", "inout": "双向"}
+            # 硬件端口关键词映射（时钟、复位、数据通用）
+            port_keyword_map = {
+                "clk": ["时钟", "clk", "clock"],
+                "rst": ["复位", "rst", "reset"],
+                "out": ["输出", "out"],
+                "in": ["输入", "in"]
+            }
+
+            # 遍历代码每个端口，逐个核对需求
+            for port in code_ports:
+                direction = port.get("direction", "").lower()
+                port_name = port.get("name", "").lower()
+                chinese_dir = direction_map.get(direction, "")
+
+                # 两层校验：方向对 + 功能对
+                dir_match = chinese_dir in req_text  # 方向匹配
+                func_match = False
+                
+                # 检查端口功能（时钟/复位/输入/输出）
+                for key, keywords in port_keyword_map.items():
+                    if key in port_name and any(kw in req_text for kw in keywords):
+                        func_match = True
+                        break
+
+                # 方向+功能都对，才算匹配成功
+                if dir_match and func_match:
+                    port_match_count += 1
+
+            # 最终得分：匹配正确的端口数 / 代码总端口数
+            port_direction_score = port_match_count / len(code_ports) if code_ports else 0.0
+            component_scores.append(port_direction_score)
+        
+        # 【维度2】时序特征匹配（从triggers提取）
+        code_triggers = code_elements.get("triggers", [])
+        code_fpga_features = code_elements.get("fpga_features", [])
+        
+        if code_triggers:
+            # 检查需求中是否提到时序相关的词汇
+            timing_keywords = [
+                "时钟", "时序", "上升", "下降", "边沿", "posedge", "negedge",
+                "同步", "脉冲", "周期", "频率"
+            ]
+            
+            req_text_timing = " ".join(req_keywords)
+            trigger_match_count = sum(
+                1 for kw in timing_keywords 
+                if kw in req_text_timing
+            )
+            
+            trigger_score = min(trigger_match_count / len(code_triggers), 1.0) if code_triggers else 0.0
+            component_scores.append(trigger_score)
+        
+        # 【维度3】FPGA特性匹配
+        if code_fpga_features:
+            feature_keywords = {
+                "sequential_logic": ["时序", "always", "时钟"],
+                "reset_mechanism": ["复位", "清零", "重置"],
+                "clock_domain": ["时钟", "频率", "周期"],
+                "edge_triggered": ["上升", "下降", "边沿"],
+                "state_machine": ["状态", "case", "转移"],
+                "parameterized": ["可配置", "参数"]
+            }
+            
+            req_text_features = " ".join(req_keywords)
+            feature_match_count = 0
+            
+            for feature in code_fpga_features:
+                feature_type = feature.get("type", "")
+                if feature_type in feature_keywords:
+                    keywords_for_feature = feature_keywords[feature_type]
+                    if any(kw in req_text_features for kw in keywords_for_feature):
+                        feature_match_count += 1
+            
+            feature_score = feature_match_count / len(code_fpga_features) if code_fpga_features else 0.0
+            component_scores.append(feature_score)
+        
+        # 计算平均得分
+        if component_scores:
+            score = sum(component_scores) / len(component_scores)
+        
+        return min(score, 1.0)
     
     def _generate_alignment_pairs(
         self,
         req_keywords: List[str],
         code_keywords: List[str],
+        debug_info_mapping: Dict  # 直接传入已经生成好的调试信息！
     ) -> List[Dict]:
         """
-        ✨ 生成对齐对 - 用于深度学习模型推理
-
-        Args:
-            req_keywords: 需求关键字
-            code_keywords: 代码关键字
-
-        Returns:
-            对齐对列表 [{'req_idx': i, 'code_idx': j, 'score': s}, ...]
+        ✨ 最终优化版：复用已有的细粒度匹配结果，生成对齐对
+        不重复调用函数，直接用debug_info里的匹配数据
         """
         alignment_pairs = []
-        
-        # 基于关键词相似度生成对齐对
-        for i, req_kw in enumerate(req_keywords):
-            for j, code_kw in enumerate(code_keywords):
-                # 简单起见：如果两个关键词的小写形式相同或有子字符串包含关系，就算匹配
-                req_lower = req_kw.lower()
-                code_lower = code_kw.lower()
+
+        # 直接从现成的debug信息里拿匹配结果
+        match_details = debug_info_mapping.get("match_details", [])
+        # 成功匹配的中文关键词
+        success_keywords = [
+            detail.split("→")[0] 
+            for detail in match_details 
+            if "✓" in detail
+        ]
+
+        # 遍历需求和代码关键词，生成模型需要的对齐对
+        for req_idx, req_kw in enumerate(req_keywords):
+            # 只处理【成功匹配】的中文关键词
+            if req_kw not in success_keywords:
+                continue
                 
-                if req_lower == code_lower or req_lower in code_lower or code_lower in req_lower:
-                    alignment_pairs.append(
-                        {
-                            "req_idx": i,
-                            "code_idx": j,
-                            "score": 0.9,  # 直接关键词匹配
-                            "confidence": 0.9,
-                        }
-                    )
-        
-        # 如果没有关键词对齐，返回空列表（表示无法对齐）
+            # 给每个匹配成功的需求词，配对对应的代码词
+            for code_idx, code_kw in enumerate(code_keywords):
+                alignment_pairs.append({
+                    "req_idx": req_idx,
+                    "code_idx": code_idx,
+                    "score": 0.9,
+                    "confidence": 0.9,
+                    "match": f"{req_kw}→{code_kw}"
+                })
+
         return alignment_pairs
 
     def batch_align(
@@ -846,13 +974,13 @@ if __name__ == "__main__":
     print("=" * 100 + "\n")
 
 # 测试
-# eq_text = "FPGA双端口RAM模块，数据位宽固定为8比特；采用单总线时钟实现双端口RAM逻辑；端口A与总线绑定，端口B为通用业务端口；总线侧读写控制规则：在1个时钟周期内同时置位片选信号、8位地址信号、读写控制信号，即可执行读或写操作；写操作时序：写数据在寻址时立即被写入对应内存地址；读操作时序：读请求触发后，有效数据标志信号将延迟1个时钟周期脉冲，此时总线读数据端口输出对应内存数据；模块可配置参数：DEPTH为双端口RAM的存储深度，代表存储的8比特字长数据的个数。"
-# code_text = "module Bus8_DPRAM #(DEPTH = 256)(input i_Bus_Rst_L,input i_Bus_Clk,input i_Bus_CS,input i_Bus_Wr_Rd_n,input [$clog2(DEPTH)-1:0] i_Bus_Addr8,input [7:0] i_Bus_Wr_Data,output [7:0] o_Bus_Rd_Data,output reg o_Bus_Rd_DV,input [7:0] i_PortB_Data,input [$clog2(DEPTH)-1:0] i_PortB_Addr8,input i_PortB_WE,output [7:0] o_PortB_Data);Dual_Port_RAM_Single_Clock #(.WIDTH(8),.DEPTH(DEPTH)) Bus_RAM_Inst(.i_Clk(i_Bus_Clk),.i_PortA_Data(i_Bus_Wr_Data),.i_PortA_Addr(i_Bus_Addr8),.i_PortA_WE(i_Bus_Wr_Rd_n & i_Bus_CS),.o_PortA_Data(o_Bus_Rd_Data),.i_PortB_Data(i_PortB_Data),.i_PortB_Addr(i_PortB_Addr8),.i_PortB_WE(i_PortB_WE),.o_PortB_Data(o_PortB_Data));always @(posedge i_Bus_Clk)begin o_Bus_Rd_DV <= i_Bus_CS & ~i_Bus_Wr_Rd_n;end endmodule"
+req_text = "FPGA双端口RAM模块，数据位宽固定为8比特；采用单总线时钟实现双端口RAM逻辑；端口A与总线绑定，端口B为通用业务端口；总线侧读写控制规则：在1个时钟周期内同时置位片选信号、8位地址信号、读写控制信号，即可执行读或写操作；写操作时序：写数据在寻址时立即被写入对应内存地址；读操作时序：读请求触发后，有效数据标志信号将延迟1个时钟周期脉冲，此时总线读数据端口输出对应内存数据；模块可配置参数：DEPTH为双端口RAM的存储深度，代表存储的8比特字长数据的个数。"
+code_text = "module Bus8_DPRAM #(DEPTH = 256)(input i_Bus_Rst_L,input i_Bus_Clk,input i_Bus_CS,input i_Bus_Wr_Rd_n,input [$clog2(DEPTH)-1:0] i_Bus_Addr8,input [7:0] i_Bus_Wr_Data,output [7:0] o_Bus_Rd_Data,output reg o_Bus_Rd_DV,input [7:0] i_PortB_Data,input [$clog2(DEPTH)-1:0] i_PortB_Addr8,input i_PortB_WE,output [7:0] o_PortB_Data);Dual_Port_RAM_Single_Clock #(.WIDTH(8),.DEPTH(DEPTH)) Bus_RAM_Inst(.i_Clk(i_Bus_Clk),.i_PortA_Data(i_Bus_Wr_Data),.i_PortA_Addr(i_Bus_Addr8),.i_PortA_WE(i_Bus_Wr_Rd_n & i_Bus_CS),.o_PortA_Data(o_Bus_Rd_Data),.i_PortB_Data(i_PortB_Data),.i_PortB_Addr(i_PortB_Addr8),.i_PortB_WE(i_PortB_WE),.o_PortB_Data(o_PortB_Data));always @(posedge i_Bus_Clk)begin o_Bus_Rd_DV <= i_Bus_CS & ~i_Bus_Wr_Rd_n;end endmodule"
 
-# # 1. 执行双向语义提取（保留你原有的函数）
-# extraction_result = extract_bidirectional_semantics(eq_text, code_text)
+# 1. 执行双向语义提取（保留你原有的函数）
+extraction_result = extract_bidirectional_semantics(req_text, code_text)
 
-# # 2. 执行语义对齐（新增核心功能，无缝衔接）
+# 2. 执行语义对齐（新增核心功能，无缝衔接）
 # req_data = {
 #     "id": 1,
 #     "elements": extraction_result["requirement"]["semantic_elements"],
@@ -864,7 +992,7 @@ if __name__ == "__main__":
 #     "vector": extraction_result["code"]["semantic_vector"],
 #     "code_segment": code_text,
 # }
-# alignment_result = align_semantics(req_data, code_data, eq_text, code_text)
+# alignment_result = align_semantics(req_data, code_data, req_text, code_text)
 
 # # 整合完整结果（语义提取+语义对齐）
 # complete_result = {"双向语义提取": extraction_result, "语义对齐结果": alignment_result}

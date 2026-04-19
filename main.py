@@ -81,6 +81,16 @@ class FPGAInconsistencyDetectionSystem:
             code_vector=code_vector,
             code_segment=code_text,
         )
+        # AlignmentResult(
+        #     req_id=req_id,
+        #     code_segment=code_segment[:100],
+        #     status=status,
+        #     confidence=confidence,
+        #     reason=reason,
+        #     mapping_confidence=mapping_confidence, 
+        #     alignment_pairs=alignment_pairs,  
+        #     debug_info=debug_info_mapping,  
+        # )
 
         # 3. 不一致检测
         print(f"[3/4] 不一致检测...")
@@ -123,38 +133,50 @@ class FPGAInconsistencyDetectionSystem:
             "inconsistency_detection": inconsistency_result,
         }
 
-        # 打印摘要 ✨ 改进的输出逻辑
+        # ===================== 🔥 改进：打印完整检测结果（核心新增） =====================
         print(f"\n结果摘要:")
         print(f"  对齐状态: {alignment_result.status.value}")
         print(f"  细粒度关键词匹配: {alignment_result.mapping_confidence:.2f}")
         print(f"  综合置信度: {alignment_result.confidence:.2f}")
         print(f"  判定原因: {alignment_result.reason}")
 
-        # 分别显示DL推理和规则检测结果
-        explicit_count = len(inconsistency_result["explicit_inconsistencies"])
-        implicit_count = len(inconsistency_result["implicit_inconsistencies"])
+        explicit = inconsistency_result["explicit_inconsistencies"]
+        implicit = inconsistency_result["implicit_inconsistencies"]
+        dl_info = inconsistency_result.get("dl_inference")
 
-        print(f"\n  📊 检测结果分析:")
-        print(f"     规则检测: {explicit_count} 个")
-        print(f"     启发式: {implicit_count} 个")
+        print(f"\n📊 检测结果详情:")
+        # 1. 打印【显性不一致 - 规则检测】具体结果
+        if explicit:
+            print(f"\n  🔴 显性不一致（规则引擎）: {len(explicit)} 个")
+            for i, inc in enumerate(explicit, 1):
+                print(f"     {i}. 【{inc['severity'].upper()}】{inc['description']}")
+                print(f"        位置: {inc['location']} | 规则: {inc.get('rule_id','-')}")
+                print(f"        建议: {inc['suggestion']}")
+        else:
+            print(f"\n  🟢 显性不一致（规则引擎）: 0 个 → 无显性问题")
 
-        # ✨ 显示深度学习推理结果（独立显示）
-        if inconsistency_result.get("dl_inference"):
-            dl_info = inconsistency_result["dl_inference"]
-            print(f"\n  🤖 深度学习推理 (GAT+Bi-GRU):")
+        # 2. 打印【隐性不一致 - 启发式】具体结果
+        if implicit:
+            print(f"\n  🟡 隐性不一致（启发式）: {len(implicit)} 个")
+            for i, inc in enumerate(implicit, 1):
+                print(f"     {i}. 【{inc['severity'].upper()}】{inc['description']}")
+                print(f"        位置: {inc['location']}")
+                print(f"        建议: {inc['suggestion']}")
+        else:
+            print(f"\n  🟢 隐性不一致（启发式）: 0 个 → 无隐性问题")
+
+        # 3. 深度学习推理结果
+        if dl_info:
+            print(f"\n🤖 深度学习推理 (GAT+Bi-GRU):")
             print(f"     不一致度: {dl_info['score']:.4f} ({dl_info['severity']})")
             print(f"     对齐对数: {dl_info['alignment_pairs_count']}")
-            if dl_info["is_inconsistent"]:
-                print(f"     ⚠️  模型判定: 存在不一致")
-            else:
-                print(f"     ✓ 模型判定: 无不一致")
+            print(f"     模型判定: {'⚠️ 存在不一致' if dl_info['is_inconsistent'] else '✓ 无不一致'}")
 
-        # 显示总体统计
-        total = inconsistency_result["total_issues"]
-        severity_dist = inconsistency_result["severity_distribution"]
-        print(f"\n  📈 总统计:")
-        print(f"     总问题数: {total} 个")
-        print(f"     严重程度分布: {severity_dist}")
+        # 4. 总统计
+        print(f"\n📈 总统计:")
+        print(f"     总问题数: {inconsistency_result['total_issues']} 个")
+        print(f"     严重程度分布: {inconsistency_result['severity_distribution']}")
+        # ==============================================================================
 
         return result
 

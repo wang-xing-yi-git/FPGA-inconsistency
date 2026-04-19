@@ -1,0 +1,597 @@
+[
+  {
+    "id": 1,
+    "req_summary": {
+      "text": "实现一个具有上升沿触发的异步复位计数器，计数宽度为8bit，计数范围0-255，当计数达到最大值时自动清零。",
+      "keywords_count": 6
+    },
+    "code_summary": {
+      "text": "module counter (input clk, input rst_n, output [7:0] count); always @(posedge clk or negedge rst_n) begin if (!rst_n) count <= 8'b0; else count <= count + 1; end endmodule",
+      "modules": [
+        "counter"
+      ],
+      "port_count": 2
+    },
+    "alignment": {
+      "status": "suspicious",
+      "keyword_match": 0.4,
+      "confidence": 0.21000000000000002,
+      "reason": "可疑对齐：关键词=0.40, 类型=0.00, 时序=0.50",
+      "debug_info": {
+        "mapped_nlp_keywords": [
+          "复位",
+          "计数器",
+          "异步",
+          "宽度",
+          "清零"
+        ],
+        "code_word_parts": [
+          "counter",
+          "begin",
+          "if",
+          "module",
+          "n",
+          "rst",
+          "input",
+          "clk"
+        ],
+        "match_details": [
+          "复位→rst✓",
+          "计数器→counter✓",
+          "异步→['async', 'asynchronous']✗",
+          "宽度→['width', 'bit', 'bits']✗",
+          "清零→['clear', 'clr']✗"
+        ],
+        "successful_mappings": 2,
+        "total_mapped_keywords": 5,
+        "port_timing_match": 0.5
+      }
+    },
+    "inconsistency_detection": {
+      "req_id": 1,
+      "explicit_inconsistencies": [
+        {
+          "type": "missing",
+          "severity": "medium",
+          "description": "Missing signal implementations: {'异步', '复位', '上升沿', '清零', '宽度', '计数器'}",
+          "location": "Signal definition",
+          "confidence": 0.75,
+          "rule_id": "rule_complete_behavior",
+          "suggestion": "Add missing signals: {'异步', '复位', '上升沿', '清零', '宽度', '计数器'}"
+        }
+      ],
+      "implicit_inconsistencies": [
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: logic",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add logic implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: control",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add control implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: event",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add event implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: reset",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add reset implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: dimension",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add dimension implementation"
+        }
+      ],
+      "total_issues": 6,
+      "severity_distribution": {
+        "medium": 6
+      },
+      "dl_inference": {
+        "model": "GAT+Bi-GRU",
+        "score": 0.9999680519104004,
+        "severity": "critical",
+        "alignment_pairs_count": 16,
+        "is_inconsistent": true
+      }
+    }
+  },
+  {
+    "id": 2,
+    "req_summary": {
+      "text": "设计一个多路选择器，具有4个输入信号和2个控制信号，根据控制信号输出对应的输入。",
+      "keywords_count": 4
+    },
+    "code_summary": {
+      "text": "module mux2to1 (input a, input b, input sel, output out); assign out = sel ? a : b; endmodule",
+      "modules": [
+        "mux2to1"
+      ],
+      "port_count": 4
+    },
+    "alignment": {
+      "status": "suspicious",
+      "keyword_match": 0.6666666666666666,
+      "confidence": 0.2333333333333333,
+      "reason": "可疑对齐：关键词=0.67, 类型=0.00, 时序=0.00",
+      "debug_info": {
+        "mapped_nlp_keywords": [
+          "信号",
+          "输入",
+          "输出"
+        ],
+        "code_word_parts": [
+          "out",
+          "output",
+          "b",
+          "module",
+          "a",
+          "input",
+          "sel",
+          "mux2to1"
+        ],
+        "match_details": [
+          "信号→['signal', 'sig']✗",
+          "输入→input✓",
+          "输出→output✓"
+        ],
+        "successful_mappings": 2,
+        "total_mapped_keywords": 3,
+        "port_timing_match": 0.0
+      }
+    },
+    "inconsistency_detection": {
+      "req_id": 2,
+      "explicit_inconsistencies": [
+        {
+          "type": "missing",
+          "severity": "medium",
+          "description": "Missing signal implementations: {'信号', '多路选择器', '输出', '输入'}",
+          "location": "Signal definition",
+          "confidence": 0.75,
+          "rule_id": "rule_complete_behavior",
+          "suggestion": "Add missing signals: {'信号', '多路选择器', '输出', '输入'}"
+        }
+      ],
+      "implicit_inconsistencies": [
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: signal",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add signal implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: logic",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add logic implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: io",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add io implementation"
+        }
+      ],
+      "total_issues": 4,
+      "severity_distribution": {
+        "medium": 4
+      },
+      "dl_inference": {
+        "model": "GAT+Bi-GRU",
+        "score": 0.9999691247940063,
+        "severity": "critical",
+        "alignment_pairs_count": 20,
+        "is_inconsistent": true
+      }
+    }
+  },
+  {
+    "id": 3,
+    "req_summary": {
+      "text": "实现一个频率为100MHz，分频比为10的时钟分频器，输出频率为10MHz。",
+      "keywords_count": 5
+    },
+    "code_summary": {
+      "text": "module clock_divider (input clk_in, input rst_n, output clk_out); reg [3:0] count; always @(posedge clk_in or negedge rst_n) begin if (!rst_n) begin count <= 0; end else begin if (count == 4'd4) begin...",
+      "modules": [
+        "clock_divider"
+      ],
+      "port_count": 2
+    },
+    "alignment": {
+      "status": "suspicious",
+      "keyword_match": 0.5,
+      "confidence": 0.24499999999999997,
+      "reason": "可疑对齐：关键词=0.50, 类型=0.00, 时序=0.50",
+      "debug_info": {
+        "mapped_nlp_keywords": [
+          "时钟",
+          "输出",
+          "频率",
+          "分频器"
+        ],
+        "code_word_parts": [
+          "begin",
+          "if",
+          "module",
+          "n",
+          "rst",
+          "in",
+          "input",
+          "divider",
+          "clk",
+          "clock"
+        ],
+        "match_details": [
+          "时钟→clock✓",
+          "输出→['output', 'out']✗",
+          "频率→['frequency', 'hz', 'mhz']✗",
+          "分频器→divider✓"
+        ],
+        "successful_mappings": 2,
+        "total_mapped_keywords": 4,
+        "port_timing_match": 0.5
+      }
+    },
+    "inconsistency_detection": {
+      "req_id": 3,
+      "explicit_inconsistencies": [
+        {
+          "type": "missing",
+          "severity": "medium",
+          "description": "Missing signal implementations: {'时钟', '输出', '频率', '时钟分频', '分频器'}",
+          "location": "Signal definition",
+          "confidence": 0.75,
+          "rule_id": "rule_complete_behavior",
+          "suggestion": "Add missing signals: {'时钟', '输出', '频率', '时钟分频', '分频器'}"
+        }
+      ],
+      "implicit_inconsistencies": [
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: timing",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add timing implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: io",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add io implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: clock",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add clock implementation"
+        }
+      ],
+      "total_issues": 4,
+      "severity_distribution": {
+        "medium": 4
+      },
+      "dl_inference": {
+        "model": "GAT+Bi-GRU",
+        "score": 0.9999682903289795,
+        "severity": "critical",
+        "alignment_pairs_count": 16,
+        "is_inconsistent": true
+      }
+    }
+  },
+  {
+    "id": 4,
+    "req_summary": {
+      "text": "设计一个移位寄存器，支持左移和右移，具有并行加载功能。",
+      "keywords_count": 2
+    },
+    "code_summary": {
+      "text": "module shift_reg (input clk, input rst_n, input [3:0] data_in, input shift_en, output [3:0] data_out); reg [3:0] reg_data; always @(posedge clk or negedge rst_n) begin if (!rst_n) reg_data <= 4'b0; el...",
+      "modules": [
+        "shift_reg"
+      ],
+      "port_count": 4
+    },
+    "alignment": {
+      "status": "suspicious",
+      "keyword_match": 1.0,
+      "confidence": 0.35,
+      "reason": "可疑对齐：关键词=1.00, 类型=0.00, 时序=0.00",
+      "debug_info": {
+        "mapped_nlp_keywords": [
+          "寄存器"
+        ],
+        "code_word_parts": [
+          "begin",
+          "else",
+          "en",
+          "if",
+          "module",
+          "n",
+          "rst",
+          "in",
+          "input",
+          "clk",
+          "data",
+          "reg",
+          "shift"
+        ],
+        "match_details": [
+          "寄存器→reg✓"
+        ],
+        "successful_mappings": 1,
+        "total_mapped_keywords": 1,
+        "port_timing_match": 0.0
+      }
+    },
+    "inconsistency_detection": {
+      "req_id": 4,
+      "explicit_inconsistencies": [
+        {
+          "type": "missing",
+          "severity": "medium",
+          "description": "Missing signal implementations: {'移位寄存器', '寄存器'}",
+          "location": "Signal definition",
+          "confidence": 0.75,
+          "rule_id": "rule_complete_behavior",
+          "suggestion": "Add missing signals: {'移位寄存器', '寄存器'}"
+        }
+      ],
+      "implicit_inconsistencies": [
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: storage",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add storage implementation"
+        }
+      ],
+      "total_issues": 2,
+      "severity_distribution": {
+        "medium": 2
+      },
+      "dl_inference": {
+        "model": "GAT+Bi-GRU",
+        "score": 0.9999678134918213,
+        "severity": "critical",
+        "alignment_pairs_count": 13,
+        "is_inconsistent": true
+      }
+    }
+  },
+  {
+    "id": 5,
+    "req_summary": {
+      "text": "实现一个优先级编码器，将8个输入中优先级最高的信号转换为3位二进制编码。",
+      "keywords_count": 4
+    },
+    "code_summary": {
+      "text": "module priority_encoder (input [7:0] req, output [2:0] priority); always @(*) begin if (req[7]) priority = 3'd7; else if (req[6]) priority = 3'd6; else priority = 3'b0; end endmodule",
+      "modules": [
+        "priority_encoder"
+      ],
+      "port_count": 1
+    },
+    "alignment": {
+      "status": "suspicious",
+      "keyword_match": 0.75,
+      "confidence": 0.26249999999999996,
+      "reason": "可疑对齐：关键词=0.75, 类型=0.00, 时序=0.00",
+      "debug_info": {
+        "mapped_nlp_keywords": [
+          "信号",
+          "输入",
+          "编码器",
+          "优先级"
+        ],
+        "code_word_parts": [
+          "begin",
+          "else",
+          "req",
+          "if",
+          "module",
+          "input",
+          "encoder",
+          "priority"
+        ],
+        "match_details": [
+          "信号→['signal', 'sig']✗",
+          "输入→input✓",
+          "编码器→encoder✓",
+          "优先级→priority✓"
+        ],
+        "successful_mappings": 3,
+        "total_mapped_keywords": 4,
+        "port_timing_match": 0.0
+      }
+    },
+    "inconsistency_detection": {
+      "req_id": 5,
+      "explicit_inconsistencies": [
+        {
+          "type": "missing",
+          "severity": "medium",
+          "description": "Missing signal implementations: {'编码器', '信号', '优先级', '输入'}",
+          "location": "Signal definition",
+          "confidence": 0.75,
+          "rule_id": "rule_complete_behavior",
+          "suggestion": "Add missing signals: {'编码器', '信号', '优先级', '输入'}"
+        }
+      ],
+      "implicit_inconsistencies": [
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: signal",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add signal implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: logic",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add logic implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: io",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add io implementation"
+        }
+      ],
+      "total_issues": 4,
+      "severity_distribution": {
+        "medium": 4
+      },
+      "dl_inference": {
+        "model": "GAT+Bi-GRU",
+        "score": 0.9999654293060303,
+        "severity": "critical",
+        "alignment_pairs_count": 21,
+        "is_inconsistent": true
+      }
+    }
+  },
+  {
+    "id": 6,
+    "req_summary": {
+      "text": "实现4位移位寄存器，具备异步复位和使能控制功能",
+      "keywords_count": 5
+    },
+    "code_summary": {
+      "text": "module design_18(\n    input clk,\n    input rst_n,\n    output [3:0] data_out\n);\n    // 设计实现: 异步复位和使能控制\n    reg [3:0] counter;\n    \n    always @(posedge clk or negedge rst_n) begin\n        if (!rst_n)\n ...",
+      "modules": [
+        "design_18"
+      ],
+      "port_count": 3
+    },
+    "alignment": {
+      "status": "suspicious",
+      "keyword_match": 0.5,
+      "confidence": 0.1843333333333333,
+      "reason": "可疑对齐：关键词=0.50, 类型=0.00, 时序=0.07",
+      "debug_info": {
+        "mapped_nlp_keywords": [
+          "复位",
+          "寄存器",
+          "异步",
+          "使能"
+        ],
+        "code_word_parts": [
+          "counter",
+          "begin",
+          "out",
+          "18",
+          "output",
+          "if",
+          "module",
+          "n",
+          "rst",
+          "input",
+          "clk",
+          "design",
+          "data",
+          "reg"
+        ],
+        "match_details": [
+          "复位→rst✓",
+          "寄存器→reg✓",
+          "异步→['async', 'asynchronous']✗",
+          "使能→['enable', 'en']✗"
+        ],
+        "successful_mappings": 2,
+        "total_mapped_keywords": 4,
+        "port_timing_match": 0.06666666666666667
+      }
+    },
+    "inconsistency_detection": {
+      "req_id": 6,
+      "explicit_inconsistencies": [
+        {
+          "type": "missing",
+          "severity": "medium",
+          "description": "Missing signal implementations: {'寄存器', '异步', '复位', '使能', '移位寄存器'}",
+          "location": "Signal definition",
+          "confidence": 0.75,
+          "rule_id": "rule_complete_behavior",
+          "suggestion": "Add missing signals: {'寄存器', '异步', '复位', '使能', '移位寄存器'}"
+        }
+      ],
+      "implicit_inconsistencies": [
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: reset",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add reset implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: control",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add control implementation"
+        },
+        {
+          "type": "implicit",
+          "severity": "medium",
+          "description": "Missing FPGA feature: storage",
+          "location": "Design feature",
+          "confidence": 0.7,
+          "suggestion": "Add storage implementation"
+        }
+      ],
+      "total_issues": 4,
+      "severity_distribution": {
+        "medium": 4
+      },
+      "dl_inference": {
+        "model": "GAT+Bi-GRU",
+        "score": 0.9999654293060303,
+        "severity": "critical",
+        "alignment_pairs_count": 24,
+        "is_inconsistent": true
+      }
+    }
+  }
+]
